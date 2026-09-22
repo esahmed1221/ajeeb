@@ -16,7 +16,8 @@ let storage;
 let legacyStorage;
 try {
   storage = await createStorage({ dataDir: tempDir });
-  await storage.saveSettings({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10 }, heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '' });
+  await storage.saveSettings({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10 }, heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '-1001234567890' });
+  assert.equal((await storage.getSettings()).telegramChatId, '-1001234567890');
 
   const product = { id: crypto.randomUUID(), code: 'TEST-1', name: 'منتج اختبار', price: 120, oldPrice: 150, active: true, updatedAt: new Date().toISOString(), images: [], sizes: { 42: 3 } };
   await storage.saveProduct(product);

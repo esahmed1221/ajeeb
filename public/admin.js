@@ -140,6 +140,8 @@ function renderDeliveryRows(delivery = {}) {
 }
 function renderSettings() {
   $('storePhone').value = db.settings.phone || ''; $('policyText').value = db.settings.exchangePolicy || ''; $('privacyText').value = db.settings.privacyPolicy || '';
+  $('telegramChatId').value = db.settings.telegramChatId || '';
+  $('telegramStatus').textContent = db.telegramBotConfigured ? 'رمز بوت تيليجرام مضبوط على السيرفر.' : 'رمز بوت تيليجرام غير مضبوط على السيرفر بعد؛ لن تُرسل إشعارات حتى تتم إضافته.';
   renderDeliveryRows(db.settings.delivery || {});
   $('heroTitle').value = db.settings.heroTitle || ''; $('heroSubtitle').value = db.settings.heroSubtitle || '';
   heroImages = { heroImage: db.settings.heroImage || '', heroMobileImage: db.settings.heroMobileImage || '' };
@@ -219,7 +221,7 @@ async function saveSettings(e) {
       heroImages[setting] = await uploadImage(file, 'homepage');
     }
     $('settingsNotice').textContent = 'جاري حفظ الإعدادات...'; $('settingsNotice').classList.remove('hidden');
-    await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({ phone: $('storePhone').value, exchangePolicy: $('policyText').value, privacyPolicy: $('privacyText').value, delivery, ...heroImages, heroTitle: $('heroTitle').value, heroSubtitle: $('heroSubtitle').value }) });
+    await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({ phone: $('storePhone').value, exchangePolicy: $('policyText').value, privacyPolicy: $('privacyText').value, delivery, ...heroImages, heroTitle: $('heroTitle').value, heroSubtitle: $('heroSubtitle').value, telegramChatId: $('telegramChatId').value }) });
     await load(); $('settingsNotice').textContent = 'تم حفظ الإعدادات بنجاح.'; $('settingsNotice').classList.remove('hidden');
   } catch (err) { error('settingsError', err.message); $('settingsNotice').classList.add('hidden'); } finally { button.disabled = false; }
 }

@@ -66,10 +66,10 @@ async function insertSnapshot(client, snapshot) {
   }
 
   await client.query(
-    `INSERT INTO store_settings (id,phone,exchange_policy,privacy_policy,delivery,hero_image,hero_mobile_image,hero_title,hero_subtitle,updated_at)
-     VALUES (1,$1,$2,$3,$4::jsonb,$5,$6,$7,$8,now())
-     ON CONFLICT (id) DO UPDATE SET phone=EXCLUDED.phone,exchange_policy=EXCLUDED.exchange_policy,privacy_policy=EXCLUDED.privacy_policy,delivery=EXCLUDED.delivery,hero_image=EXCLUDED.hero_image,hero_mobile_image=EXCLUDED.hero_mobile_image,hero_title=EXCLUDED.hero_title,hero_subtitle=EXCLUDED.hero_subtitle,updated_at=now()`,
-    [snapshot.settings.phone, snapshot.settings.exchangePolicy, snapshot.settings.privacyPolicy, JSON.stringify(snapshot.settings.delivery), snapshot.settings.heroImage, snapshot.settings.heroMobileImage, snapshot.settings.heroTitle, snapshot.settings.heroSubtitle]
+    `INSERT INTO store_settings (id,phone,exchange_policy,privacy_policy,delivery,hero_image,hero_mobile_image,hero_title,hero_subtitle,telegram_chat_id,updated_at)
+     VALUES (1,$1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,now())
+     ON CONFLICT (id) DO UPDATE SET phone=EXCLUDED.phone,exchange_policy=EXCLUDED.exchange_policy,privacy_policy=EXCLUDED.privacy_policy,delivery=EXCLUDED.delivery,hero_image=EXCLUDED.hero_image,hero_mobile_image=EXCLUDED.hero_mobile_image,hero_title=EXCLUDED.hero_title,hero_subtitle=EXCLUDED.hero_subtitle,telegram_chat_id=EXCLUDED.telegram_chat_id,updated_at=now()`,
+    [snapshot.settings.phone, snapshot.settings.exchangePolicy, snapshot.settings.privacyPolicy, JSON.stringify(snapshot.settings.delivery), snapshot.settings.heroImage, snapshot.settings.heroMobileImage, snapshot.settings.heroTitle, snapshot.settings.heroSubtitle, snapshot.settings.telegramChatId || '']
   );
 
   for (const customer of snapshot.customers) {
@@ -123,7 +123,7 @@ try {
         EXISTS (
           SELECT 1 FROM store_settings WHERE id=1 AND (
             phone<>'' OR exchange_policy<>'' OR privacy_policy<>'' OR delivery<>'{}'::jsonb OR
-            hero_image<>'' OR hero_mobile_image<>'' OR hero_title<>'' OR hero_subtitle<>''
+            hero_image<>'' OR hero_mobile_image<>'' OR hero_title<>'' OR hero_subtitle<>'' OR telegram_chat_id<>''
           )
         ) AS customized_settings`);
       const occupied = Object.values(counts.rows[0]).some(value => Number(value) > 0);

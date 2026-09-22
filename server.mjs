@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createStorage, databaseOptionsFromEnv } from './storage.mjs';
+import { sendTelegramOrder, validTelegramChatId } from './telegram.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.DATA_DIR || path.join(root, 'data');
@@ -16,6 +17,7 @@ const port = Number(process.env.PORT || 3000);
 const adminPassword = process.env.ADMIN_PASSWORD_B64 ? Buffer.from(process.env.ADMIN_PASSWORD_B64, 'base64').toString('utf8') : (process.env.ADMIN_PASSWORD || '');
 const sessionSecret = process.env.SESSION_SECRET || '';
 const siteOrigin = process.env.SITE_ORIGIN || '';
+const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || '';
 const adminConfigured = adminPassword.length >= 16 && sessionSecret.length >= 48 && !adminPassword.startsWith('replace-with') && !sessionSecret.startsWith('replace-with');
 const attempts = new Map();
 const activeVisitors = new Map();
@@ -98,6 +100,15 @@ function productForPublic(p) {
   return { id: p.id, code: p.code, name: p.name, price: p.price, oldPrice: p.oldPrice, images: p.images, sizes: p.sizes, active: p.active };
 }
 function validImagePath(value) { return value === '' || value === '/featured-banner.jpg' || /^\/uploads\/[a-f0-9-]+\.(png|jpg|webp)$/.test(value) || /^\/products\/[a-z0-9-]+\.(png|jpg|webp)$/.test(value); }
+async function notifyNewOrder(order) {
+  try {
+    const settings = await storage.getSettings();
+    const result = await sendTelegramOrder({ token: telegramBotToken, chatId: settings.telegramChatId, order });
+    if (result.sent) console.log(`Telegram order notification sent for ${order.number}`);
+  } catch (error) {
+    console.error(`Telegram order notification failed for ${order.number}: ${error.message}`);
+  }
+}
 function validProduct(input, existing) {
   const name = clean(input.name, 120), code = clean(input.code, 40);
   const price = positiveInt(input.price, 1000000), oldPrice = positiveInt(input.oldPrice || 0, 1000000);
@@ -167,6 +178,7 @@ const server = http.createServer(async (req, res) => {
         if (error.code === 'INVALID_CITY') return fail(res, 400, 'اختَر مدينة متاحة للتوصيل');
         throw error;
       }
+      void notifyNewOrder(order);
       return send(res, 201, { number: order.number, total: order.total });
     }
     if (pathname === '/api/admin/session' && req.method === 'GET') { const person = await auth(req); return send(res, 200, { loggedIn: Boolean(person), configured: adminConfigured, user: person }); }
@@ -201,7 +213,7 @@ const server = http.createServer(async (req, res) => {
           can(person, 'settings.view') ? storage.getSettings() : null,
           person.owner ? storage.listStaff() : []
         ]);
-        return send(res, 200, { user: person, liveVisitors: liveVisitorCount(), products, orders, customers, settings, staff: staff.map(publicStaff) });
+        return send(res, 200, { user: person, liveVisitors: liveVisitorCount(), products, orders, customers, settings, telegramBotConfigured: Boolean(telegramBotToken), staff: staff.map(publicStaff) });
       }
       if (pathname === '/api/admin/staff' && req.method === 'POST') {
         if (!person.owner) return fail(res, 403, 'هذه العملية للمالك فقط');
@@ -273,7 +285,9 @@ const server = http.createServer(async (req, res) => {
           const name = clean(city, 80), amount = positiveInt(fee, 10000);
           if (!name || amount === null) return fail(res, 400, 'أسعار التوصيل غير صالحة'); delivery[name] = amount;
         }
-        const updated = { phone: clean(input.phone, 50), exchangePolicy: clean(input.exchangePolicy, 3000), privacyPolicy: clean(input.privacyPolicy, 5000), delivery, heroImage, heroMobileImage, heroTitle: clean(input.heroTitle, 100), heroSubtitle: clean(input.heroSubtitle, 240) };
+        const telegramChatId = clean(input.telegramChatId, 80);
+        if (!validTelegramChatId(telegramChatId)) return fail(res, 400, 'وجهة تيليجرام غير صالحة. استخدم Chat ID رقميًا أو @username');
+        const updated = { phone: clean(input.phone, 50), exchangePolicy: clean(input.exchangePolicy, 3000), privacyPolicy: clean(input.privacyPolicy, 5000), delivery, heroImage, heroMobileImage, heroTitle: clean(input.heroTitle, 100), heroSubtitle: clean(input.heroSubtitle, 240), telegramChatId };
         await storage.saveSettings(updated); return send(res, 200, updated);
       }
     }

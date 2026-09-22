@@ -84,13 +84,17 @@ function allowedOrigin(req) {
   const host = `${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.headers.host}`;
   return origin === host || (siteOrigin && origin === siteOrigin);
 }
+function limitedKey(key, max, windowMs) {
+  const now = Date.now();
+  const recent = (attempts.get(key) || []).filter(time => now - time < windowMs);
+  recent.push(now); attempts.set(key, recent); return recent.length > max;
+}
 function limited(req, key, max, windowMs) {
   const localProxy = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
   const ip = localProxy ? (req.headers['x-real-ip'] || req.socket.remoteAddress) : req.socket.remoteAddress;
-  const k = `${key}:${ip || 'unknown'}`; const now = Date.now();
-  const a = (attempts.get(k) || []).filter(t => now - t < windowMs);
-  a.push(now); attempts.set(k, a); return a.length > max;
+  return limitedKey(`${key}:ip:${ip || 'unknown'}`, max, windowMs);
 }
+function limitedValue(key, value, max, windowMs) { return limitedKey(`${key}:${value}`, max, windowMs); }
 function liveVisitorCount() {
   const cutoff = Date.now() - 60000;
   for (const [visitor, seen] of activeVisitors) if (seen < cutoff) activeVisitors.delete(visitor);
@@ -154,7 +158,7 @@ const server = http.createServer(async (req, res) => {
       activeVisitors.set(visitor, Date.now()); return send(res, 200, { ok: true });
     }
     if (pathname === '/api/order' && req.method === 'POST') {
-      if (limited(req, 'order', 8, 3600000)) return fail(res, 429, 'حاول مرة أخرى لاحقًا');
+      if (limited(req, 'order', 120, 3600000)) return fail(res, 429, 'حاول مرة أخرى لاحقًا');
       const input = await body(req, 40000), c = input.customer || {}, lines = input.items;
       const name = clean(c.name, 100), phone = clean(c.phone, 25), city = clean(c.city, 80), address = clean(c.address, 300), notes = clean(c.notes, 500);
       if (name.length < 3 || !/^[+\d\s()-]{7,25}$/.test(phone) || !city || address.length < 5) return fail(res, 400, 'راجع الاسم والهاتف والمدينة والعنوان');
@@ -170,6 +174,7 @@ const server = http.createServer(async (req, res) => {
         if (qty > 20) return fail(res, 400, 'الحد الأقصى 20 قطعة من المقاس نفسه');
         const [productId, size] = key.split(':'); requested.push({ productId, size, qty });
       }
+      if (limitedValue('order-phone', phone.replace(/\D/g, ''), 6, 3600000)) return fail(res, 429, 'تم إرسال طلبات كثيرة لهذا الرقم. حاول مرة أخرى لاحقًا');
       const draft = { id: id(), number: `AJ-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`, customer: { name, phone, city, address, notes }, lines: requested, createdAt: new Date().toISOString() };
       let order;
       try { order = await storage.createOrder(draft); }

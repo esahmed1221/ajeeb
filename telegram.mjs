@@ -7,8 +7,25 @@ export function validTelegramChatId(value) {
 }
 
 export function telegramOrderText(order) {
+  const customer = order.customer || {};
+  const items = Array.isArray(order.items) ? order.items : [];
   const total = Number(order.total || 0).toLocaleString('en-US');
-  return `طلب جديد في متجر عجيب\nرقم الطلب: ${order.number}\nقيمة الطلب: ${total} د.ل`;
+  const itemLines = items.length
+    ? items.map((item, index) => `${index + 1}. كود الحذاء: ${item.code || '—'} | المقاس: ${item.size || '—'} | الكمية: ${Number(item.qty || 0)}`).join('\n')
+    : '—';
+  return [
+    'طلب جديد في متجر عجيب',
+    `رقم الطلب: ${order.number}`,
+    '',
+    `اسم الزبون: ${customer.name || '—'}`,
+    `رقم الهاتف: ${customer.phone || '—'}`,
+    `المنطقة: ${customer.city || '—'}`,
+    '',
+    'تفاصيل الطلب:',
+    itemLines,
+    '',
+    `قيمة الطلب: ${total} د.ل`
+  ].join('\n');
 }
 
 export async function sendTelegramOrder({ token, chatId, order, fetchImpl = fetch, signal = AbortSignal.timeout(5000) }) {

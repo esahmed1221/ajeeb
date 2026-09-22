@@ -45,6 +45,8 @@ Copy-Item .env.example .env
 
 افتح `.env` واستبدل القيم الثلاث التي تبدأ بـ `replace-with`: كلمة مرور الإدارة، سر الجلسة، وكلمة مرور PostgreSQL. يمكن توليد قيمة عشوائية سداسية عشرية في PowerShell وتشغيل الأمر مرة مستقلة لكل قيمة:
 
+عند نقل تثبيت قديم يستخدم `ADMIN_PASSWORD_B64` يمكن نسخ القيمة المشفرة إلى `.env` بدل `ADMIN_PASSWORD`، وسيحتفظ المتجر بنفس كلمة مرور الإدارة دون تخزينها كنص صريح.
+
 ```powershell
 [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(48)).ToLower()
 ```

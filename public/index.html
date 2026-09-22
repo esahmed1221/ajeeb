@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#132052"><meta name="description" content="عجيب للأحذية — تسوّق الأحذية المتوفرة بالمقاس داخل ليبيا.">
+  <title>عجيب للأحذية | قطع تستاهل</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/fonts.css?v=1"><link rel="stylesheet" href="/style.css?v=6"><link rel="stylesheet" href="/storefront.css?v=5"><script defer src="/loader.js?v=1"></script>
+</head>
+<body>
+  <div class="site-loader" id="siteLoader" role="status" aria-label="جاري تحميل متجر عجيب"><div class="loader-brand"><span class="loader-ring"></span><img src="/logo.png" alt=""><small>جاري التحميل</small></div></div>
+  <div class="promo"><div class="wrap promo-inner"><span>توصيل لجميع أنحاء ليبيا · الدفع عند الاستلام</span></div></div>
+  <header class="site-header wrap">
+    <a class="brand" href="/" aria-label="عجيب للأحذية"><img src="/logo.png" alt="متجر عجيب للأحذية"></a>
+    <nav aria-label="التنقل الرئيسي"><a href="#offers">كل الأحذية</a><a href="#sizes">تسوق بالمقاس</a></nav>
+    <div class="head-actions"><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="ابحث بالاسم أو الكود" aria-label="ابحث عن منتج"></label><button class="bag-btn" id="openCart" aria-label="افتح السلة"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8h16l-1.2 12H5.2L4 8Z"/><path d="M8 9V6a4 4 0 0 1 8 0v3"/></svg><span id="cartCount">0</span></button></div>
+  </header>
+  <main>
+    <section class="campaign hidden" id="heroSection"><div class="wrap campaign-inner"><a class="campaign-image-link" href="#offers" aria-label="تسوق العرض"><picture><source id="heroMobileSource" media="(max-width: 640px)"><img id="heroImage" alt="عرض من متجر عجيب للأحذية"></picture></a><div class="campaign-copy" id="heroCopy"><h1 id="heroTitle"></h1><p id="heroSubtitle"></p><a class="button white" href="#offers">تسوق الآن</a></div></div></section>
+    <section class="catalog" id="offers"><div class="wrap"><div class="section-top"><div><h2>تسوق الأحذية</h2><p><span id="productCount">0</span> منتج متوفر</p></div><button class="text-btn" id="clearFilters">عرض الكل</button></div><div class="size-strip" id="sizes"><div class="size-inner"><div class="size-heading"><span>اختار مقاسك</span><button id="clearSizeFilter" class="size-clear hidden" type="button">× إلغاء المقاس</button></div><div id="sizeFilters" class="size-buttons"></div></div></div><p id="previewNote" class="preview-note hidden">المنتجات الظاهرة أمثلة للشكل فقط. المنتجات الحقيقية تُضاف من لوحة الإدارة قبل الإطلاق.</p><div id="products" class="product-grid"></div><p id="empty" class="empty hidden">ما فيش منتجات مطابقة. جرّب مقاس أو كلمة ثانية.</p></div></section>
+    <section id="how" class="how"><div class="wrap how-compact"><strong>طلبك بسهولة</strong><span>اختار المقاس ← أكد الطلب ← استلم وادفع</span></div></section>
+  </main>
+  <footer><div class="wrap foot-inner"><div class="foot-brand"><img src="/logo.png" alt="متجر عجيب للأحذية"><p>قطع تستاهل. أسعار تخليك تختار براحتك.</p></div><div class="foot-info"><strong>للتواصل</strong><p id="policy"></p><details id="privacyBox" class="hidden"><summary>سياسة الخصوصية</summary><p id="privacyPolicy"></p></details><p id="phone"></p></div><a class="admin-link" href="/admin">تسجيل الدخول</a></div></footer>
+  <div class="overlay hidden" id="overlay"></div>
+  <aside class="drawer hidden" id="cartDrawer" aria-label="سلة التسوق" aria-modal="true" role="dialog"><div class="drawer-head"><h2>طلبك</h2><button class="icon-btn" id="closeCart" aria-label="إغلاق">×</button></div><div id="cartItems" class="drawer-body"></div><div class="drawer-foot"><div class="total-line"><span>مجموع المنتجات</span><strong id="cartSubtotal">0 د.ل</strong></div><button class="button teal wide" id="checkoutBtn">إتمام الطلب</button></div></aside>
+  <div class="modal hidden" id="productModal" role="dialog" aria-modal="true" aria-label="تفاصيل المنتج"><button class="icon-btn modal-close" id="closeProduct" aria-label="إغلاق">×</button><div id="productDetail"></div></div>
+  <div class="modal checkout hidden" id="checkoutModal" role="dialog" aria-modal="true" aria-label="إتمام الطلب"><button class="icon-btn modal-close" id="closeCheckout" aria-label="إغلاق">×</button><div id="checkoutContent"><h2>إتمام الطلب</h2><p>الدفع عند الاستلام</p><form id="checkoutForm"><label>الاسم واللقب<input name="name" required minlength="3" maxlength="100"></label><label>رقم الهاتف<input name="phone" required inputmode="tel" maxlength="25"></label><label>المدينة<select name="city" id="city" required></select></label><label>المنطقة والعنوان بالتفصيل<textarea name="address" required minlength="5" maxlength="300"></textarea></label><label>ملاحظات (اختياري)<textarea name="notes" maxlength="500"></textarea></label><div class="total-line"><span>المنتجات</span><strong id="checkoutSubtotal"></strong></div><div class="total-line"><span>التوصيل</span><strong id="deliveryFee">اختر المدينة</strong></div><div class="total-line final"><span>الإجمالي</span><strong id="grandTotal"></strong></div><p id="orderError" class="error hidden"></p><button class="button teal wide" type="submit">تأكيد الطلب</button></form></div></div>
+  <script type="module" src="/store.js?v=5"></script>
+</body></html>

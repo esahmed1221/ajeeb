@@ -1,0 +1,21 @@
+{
+  "name": "ajeeb-storefront",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check server.mjs && node --check storage.mjs && node --check scripts/backup.mjs && node --check scripts/db-check.mjs && node --check scripts/migrate-pglite-to-postgres.mjs",
+    "test:storage": "node scripts/storage-smoke.mjs",
+    "db:check": "node scripts/db-check.mjs",
+    "db:migrate:docker": "node scripts/migrate-pglite-to-postgres.mjs",
+    "backup": "node scripts/backup.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "pg": "^8.16.3"
+  }
+}

@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+node_modules
+npm-debug.log*
+data/postgres
+data/backups
+data/store.json
+data/uploads
+Dockerfile*
+compose*.yaml
+README.md

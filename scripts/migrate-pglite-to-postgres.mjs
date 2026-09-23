@@ -93,6 +93,7 @@ async function insertSnapshot(client, snapshot) {
       );
     }
   }
+  await client.query('UPDATE order_counter SET last_number=(SELECT count(*) FROM orders) WHERE id=1');
 }
 
 try {

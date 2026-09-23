@@ -65,6 +65,8 @@ async function createSchema(driver) {
     CREATE TABLE IF NOT EXISTS customers (id uuid PRIMARY KEY, name varchar(100) NOT NULL, phone varchar(25) NOT NULL, phone_key varchar(64) NOT NULL UNIQUE, city varchar(80) NOT NULL, address varchar(300) NOT NULL, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL);
     CREATE TABLE IF NOT EXISTS orders (id uuid PRIMARY KEY, number varchar(60) NOT NULL UNIQUE, customer_id uuid REFERENCES customers(id) ON DELETE RESTRICT, customer_name varchar(100) NOT NULL, customer_phone varchar(25) NOT NULL, customer_city varchar(80) NOT NULL, customer_address varchar(300) NOT NULL, customer_notes varchar(500) NOT NULL DEFAULT '', subtotal integer NOT NULL CHECK (subtotal >= 0), delivery integer NOT NULL CHECK (delivery >= 0), total integer NOT NULL CHECK (total >= 0), status varchar(30) NOT NULL, stock_restored boolean NOT NULL DEFAULT false, created_at timestamptz NOT NULL);
     ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_id uuid REFERENCES customers(id) ON DELETE RESTRICT;
+    CREATE TABLE IF NOT EXISTS order_counter (id smallint PRIMARY KEY CHECK (id = 1), last_number bigint NOT NULL DEFAULT 0 CHECK (last_number >= 0));
+    INSERT INTO order_counter (id,last_number) SELECT 1,count(*) FROM orders ON CONFLICT (id) DO NOTHING;
     CREATE TABLE IF NOT EXISTS order_items (order_id uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE, product_id uuid NOT NULL, product_code varchar(40) NOT NULL, product_name varchar(120) NOT NULL, size smallint NOT NULL, quantity integer NOT NULL CHECK (quantity > 0), unit_price integer NOT NULL CHECK (unit_price >= 0), PRIMARY KEY (order_id, product_id, size));
     CREATE INDEX IF NOT EXISTS customers_updated_at_idx ON customers (updated_at DESC);
     CREATE INDEX IF NOT EXISTS customers_name_idx ON customers (name);
@@ -140,6 +142,20 @@ async function migrateTelegramSettings(driver) {
   });
 }
 
+async function migrateSequentialOrderNumbers(driver) {
+  const already = await driver.query('SELECT 1 FROM schema_migrations WHERE version=4');
+  if (already.rowCount) return;
+  await driver.transaction(async tx => {
+    await tx.query("UPDATE orders SET number='v4-' || id::text");
+    await tx.query(`WITH numbered AS (
+      SELECT id,row_number() OVER (ORDER BY created_at,id) AS sequence_number FROM orders
+    )
+    UPDATE orders SET number=numbered.sequence_number::text FROM numbered WHERE orders.id=numbered.id`);
+    await tx.query('UPDATE order_counter SET last_number=(SELECT count(*) FROM orders) WHERE id=1');
+    await tx.query('INSERT INTO schema_migrations (version) VALUES (4)');
+  });
+}
+
 const productSelect = `
   SELECT p.*,
     COALESCE((SELECT jsonb_agg(pi.path ORDER BY pi.position) FROM product_images pi WHERE pi.product_id=p.id), '[]'::jsonb) AS images,
@@ -211,7 +227,7 @@ async function getSettings(driver) {
 export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
   fs.mkdirSync(dataDir, { recursive: true });
   const driver = await createDriver(databaseUrl, databaseConfig, path.join(dataDir, 'postgres'));
-  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver);
+  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver);
   return {
     kind: driver.kind,
     listProducts: ({ activeOnly = false } = {}) => listProducts(driver, activeOnly),
@@ -260,7 +276,8 @@ export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
           [crypto.randomUUID(), draft.customer.name, draft.customer.phone, phoneKey, draft.customer.city, draft.customer.address, draft.createdAt]
         );
         const customerId = customerResult.rows[0].id;
-        const order = { id: draft.id, number: draft.number, customerId, customer: draft.customer, items, subtotal, delivery: Number(delivery), total: subtotal + Number(delivery), status: 'جديد', stockRestored: false, createdAt: draft.createdAt };
+        const numberResult = await tx.query('UPDATE order_counter SET last_number=last_number+1 WHERE id=1 RETURNING last_number::text AS number');
+        const order = { id: draft.id, number: numberResult.rows[0].number, customerId, customer: draft.customer, items, subtotal, delivery: Number(delivery), total: subtotal + Number(delivery), status: 'جديد', stockRestored: false, createdAt: draft.createdAt };
         await tx.query(`INSERT INTO orders (id,number,customer_id,customer_name,customer_phone,customer_city,customer_address,customer_notes,subtotal,delivery,total,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, [order.id, order.number, order.customerId, order.customer.name, order.customer.phone, order.customer.city, order.customer.address, order.customer.notes, order.subtotal, order.delivery, order.total, order.status, order.createdAt]);
         for (const item of order.items) await tx.query('INSERT INTO order_items (order_id,product_id,product_code,product_name,size,quantity,unit_price) VALUES ($1,$2,$3,$4,$5,$6,$7)', [order.id, item.productId, item.code, item.name, Number(item.size), item.qty, item.price]);
         return order;

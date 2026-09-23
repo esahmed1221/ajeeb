@@ -175,7 +175,7 @@ const server = http.createServer(async (req, res) => {
         const [productId, size] = key.split(':'); requested.push({ productId, size, qty });
       }
       if (limitedValue('order-phone', phone.replace(/\D/g, ''), 6, 3600000)) return fail(res, 429, 'تم إرسال طلبات كثيرة لهذا الرقم. حاول مرة أخرى لاحقًا');
-      const draft = { id: id(), number: `AJ-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`, customer: { name, phone, city, address, notes }, lines: requested, createdAt: new Date().toISOString() };
+      const draft = { id: id(), customer: { name, phone, city, address, notes }, lines: requested, createdAt: new Date().toISOString() };
       let order;
       try { order = await storage.createOrder(draft); }
       catch (error) {

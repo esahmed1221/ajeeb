@@ -74,6 +74,7 @@ async function createSchema(driver) {
     CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders (created_at DESC);
     CREATE INDEX IF NOT EXISTS orders_status_idx ON orders (status);
     CREATE INDEX IF NOT EXISTS products_active_idx ON products (active);
+    CREATE INDEX IF NOT EXISTS inventory_available_size_idx ON inventory (size) WHERE stock > 0;
   `);
 }
 
@@ -188,6 +189,38 @@ async function listProducts(driver, activeOnly = false) {
   const result = await driver.query(`${productSelect}${activeOnly ? ' WHERE p.active=true' : ''} ORDER BY p.updated_at DESC`);
   return result.rows.map(mapProduct);
 }
+function catalogConditions(query, size) {
+  const conditions = ['p.active=true'], params = [];
+  if (query) {
+    params.push(`%${query}%`); const position = params.length;
+    conditions.push(`(p.name ILIKE $${position} OR p.code ILIKE $${position})`);
+  }
+  if (size) {
+    params.push(Number(size)); const position = params.length;
+    conditions.push(`EXISTS (SELECT 1 FROM inventory available_inventory WHERE available_inventory.product_id=p.id AND available_inventory.size=$${position} AND available_inventory.stock>0)`);
+  }
+  return { where: conditions.join(' AND '), params };
+}
+async function listCatalogPage(driver, { page = 1, pageSize = 15, query = '', size = '' } = {}) {
+  const filter = catalogConditions(query, size);
+  const countResult = await driver.query(`SELECT count(*)::integer AS total FROM products p WHERE ${filter.where}`, filter.params);
+  const totalItems = Number(countResult.rows[0]?.total || 0);
+  const totalPages = Math.ceil(totalItems / pageSize);
+  const currentPage = totalPages ? Math.min(Math.max(page, 1), totalPages) : 1;
+  const params = [...filter.params, pageSize, (currentPage - 1) * pageSize];
+  const result = await driver.query(`${productSelect} WHERE ${filter.where} ORDER BY p.updated_at DESC,p.id LIMIT $${filter.params.length + 1} OFFSET $${filter.params.length + 2}`, params);
+  return { products: result.rows.map(mapProduct), page: currentPage, pageSize, totalItems, totalPages };
+}
+async function listAvailableSizes(driver) {
+  const result = await driver.query('SELECT DISTINCT i.size FROM inventory i JOIN products p ON p.id=i.product_id WHERE p.active=true AND i.stock>0 ORDER BY i.size');
+  return result.rows.map(row => String(row.size));
+}
+async function listProductsByIds(driver, ids) {
+  if (!ids.length) return [];
+  const placeholders = ids.map((_, index) => `$${index + 1}`).join(',');
+  const result = await driver.query(`${productSelect} WHERE p.active=true AND p.id IN (${placeholders}) ORDER BY p.updated_at DESC,p.id`, ids);
+  return result.rows.map(mapProduct);
+}
 async function findProduct(driver, id) {
   const result = await driver.query(`${productSelect} WHERE p.id=$1`, [id]);
   return result.rows[0] ? mapProduct(result.rows[0]) : null;
@@ -231,6 +264,9 @@ export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
   return {
     kind: driver.kind,
     listProducts: ({ activeOnly = false } = {}) => listProducts(driver, activeOnly),
+    listCatalogPage: options => listCatalogPage(driver, options),
+    listAvailableSizes: () => listAvailableSizes(driver),
+    listProductsByIds: ids => listProductsByIds(driver, ids),
     findProduct: id => findProduct(driver, id),
     productCodeExists: async (code, excludedId = null) => {
       const result = await driver.query('SELECT 1 FROM products WHERE code=$1 AND ($2::uuid IS NULL OR id<>$2::uuid) LIMIT 1', [code, excludedId]);

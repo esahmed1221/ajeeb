@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check storage.mjs && node --check telegram.mjs && node --check scripts/backup.mjs && node --check scripts/db-check.mjs && node --check scripts/migrate-pglite-to-postgres.mjs && node --check scripts/telegram-smoke.mjs",
+    "check": "node --check server.mjs && node --check storage.mjs && node --check telegram.mjs && node --check public/store.js && node --check public/admin.js && node --check scripts/backup.mjs && node --check scripts/db-check.mjs && node --check scripts/migrate-pglite-to-postgres.mjs && node --check scripts/telegram-smoke.mjs",
     "test:storage": "node scripts/storage-smoke.mjs",
     "test:telegram": "node scripts/telegram-smoke.mjs",
     "test": "npm run check && npm run test:storage && npm run test:telegram",

@@ -148,8 +148,19 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method !== 'GET' && !allowedOrigin(req)) return fail(res, 403, 'طلب غير مسموح');
     if (pathname === '/api/catalog' && req.method === 'GET') {
-      const [products, settings] = await Promise.all([storage.listProducts({ activeOnly: true }), storage.getSettings()]);
-      return send(res, 200, { products: products.map(productForPublic), preview: process.env.DEMO_PREVIEW === '1' && products.length === 0, settings: { phone: settings.phone, exchangePolicy: settings.exchangePolicy, privacyPolicy: settings.privacyPolicy, delivery: settings.delivery, heroImage: settings.heroImage || '', heroMobileImage: settings.heroMobileImage || '', heroTitle: settings.heroTitle || '', heroSubtitle: settings.heroSubtitle || '' } });
+      const page = positiveInt(url.searchParams.get('page') || 1, 100000), query = clean(url.searchParams.get('q'), 80), size = clean(url.searchParams.get('size'), 2);
+      if (!page || (size && (!/^\d{2}$/.test(size) || Number(size) < 20 || Number(size) > 50))) return fail(res, 400, 'صفحة أو مقاس غير صالح');
+      const [catalog, settings, availableSizes] = await Promise.all([storage.listCatalogPage({ page, pageSize: 15, query, size }), storage.getSettings(), storage.listAvailableSizes()]);
+      return send(res, 200, { products: catalog.products.map(productForPublic), preview: process.env.DEMO_PREVIEW === '1' && catalog.totalItems === 0 && !query && !size, availableSizes, pagination: { page: catalog.page, pageSize: catalog.pageSize, totalItems: catalog.totalItems, totalPages: catalog.totalPages }, settings: { phone: settings.phone, exchangePolicy: settings.exchangePolicy, privacyPolicy: settings.privacyPolicy, delivery: settings.delivery, heroImage: settings.heroImage || '', heroMobileImage: settings.heroMobileImage || '', heroTitle: settings.heroTitle || '', heroSubtitle: settings.heroSubtitle || '' } });
+    }
+    if (pathname === '/api/cart-products' && req.method === 'POST') {
+      if (limited(req, 'cart-products', 240, 3600000)) return fail(res, 429, 'محاولات كثيرة');
+      const input = await body(req, 5000);
+      if (!Array.isArray(input.ids) || input.ids.length > 30) return fail(res, 400, 'قائمة المنتجات غير صالحة');
+      const ids = [...new Set(input.ids.map(value => clean(value, 36)))];
+      if (ids.some(value => !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value))) return fail(res, 400, 'معرّف منتج غير صالح');
+      const products = await storage.listProductsByIds(ids);
+      return send(res, 200, { products: products.map(productForPublic) });
     }
     if (pathname === '/api/presence' && req.method === 'POST') {
       if (limited(req, 'presence', 240, 3600000)) return fail(res, 429, 'محاولات كثيرة');

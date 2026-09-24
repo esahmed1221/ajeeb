@@ -48,6 +48,23 @@ try {
   assert.equal(customers[0].orderCount, 2);
   assert.equal(customers[0].totalSpent, 130);
 
+  const pageProducts = [];
+  for (let index = 0; index < 16; index++) {
+    const pagedProduct = { id: crypto.randomUUID(), code: `PAGE-${index}`, name: `منتج صفحة ${index}`, price: 50 + index, oldPrice: 0, active: true, updatedAt: new Date(Date.now() + index + 1000).toISOString(), images: [], sizes: index === 15 ? { 43: 1 } : { 42: 1 } };
+    pageProducts.push(pagedProduct); await storage.saveProduct(pagedProduct);
+  }
+  const firstPage = await storage.listCatalogPage({ page: 1, pageSize: 15 });
+  const secondPage = await storage.listCatalogPage({ page: 2, pageSize: 15 });
+  assert.equal(firstPage.products.length, 15);
+  assert.equal(firstPage.totalItems, 17);
+  assert.equal(firstPage.totalPages, 2);
+  assert.equal(secondPage.page, 2);
+  assert.equal(secondPage.products.length, 2);
+  assert.equal((await storage.listCatalogPage({ page: 1, pageSize: 15, query: 'PAGE-15' })).totalItems, 1);
+  assert.equal((await storage.listCatalogPage({ page: 1, pageSize: 15, size: '43' })).totalItems, 1);
+  assert.deepEqual(await storage.listAvailableSizes(), ['42', '43']);
+  assert.equal((await storage.listProductsByIds([product.id, pageProducts[0].id])).length, 2);
+
   const now = new Date().toISOString();
   const staff = { id: crypto.randomUUID(), name: 'موظف اختبار', username: 'test.staff', active: true, permissions: ['orders.view'], salt: 'test-salt', hash: 'test-hash', sessionVersion: 1, createdAt: now, updatedAt: now };
   await storage.saveStaff(staff);

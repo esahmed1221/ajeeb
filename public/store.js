@@ -39,7 +39,7 @@ function render() {
   $('previewNote').classList.toggle('hidden', !products.some(p => p.demo));
   $('empty').classList.toggle('hidden', shown.length > 0);
   $('products').innerHTML = shown.map(p => { const stock = Object.values(p.sizes).reduce((a, b) => a + b, 0); const discount = p.oldPrice > p.price ? Math.round((1 - p.price / p.oldPrice) * 100) : 0;
-    return `<article class="product-card"><button class="product-photo photo-open" data-view="${p.id}" aria-label="تفاصيل ${esc(p.name)}">${photo(p)}${discount ? `<span class="badge">خصم ${discount}%</span>` : ''}</button><div class="card-info"><div class="code-line"><span>${esc(p.code)}</span></div><h3>${esc(p.name)}</h3><div><span class="price">${money(p.price)}</span>${p.oldPrice ? `<span class="old">${money(p.oldPrice)}</span>` : ''}</div><button class="button navy" data-view="${p.id}" ${stock ? '' : 'disabled'}>${stock ? 'عرض المقاسات' : 'نفد المخزون'}</button></div></article>`;
+    return `<article class="product-card"><button class="product-photo photo-open" data-view="${p.id}" aria-label="تفاصيل ${esc(p.name)}">${photo(p)}${discount ? `<span class="badge">خصم ${discount}%</span>` : ''}</button><div class="card-info"><div class="code-line"><span>${esc(p.code)}</span></div><h3>${esc(p.name)}</h3><div class="card-price"><span class="price">${money(p.price)}</span>${p.oldPrice ? `<span class="old">${money(p.oldPrice)}</span>` : ''}</div><button class="button navy" data-view="${p.id}" ${stock ? '' : 'disabled'}>${stock ? 'عرض التفاصيل' : 'نفد المخزون'}</button></div></article>`;
   }).join('');
   $('products').querySelectorAll('[data-view]').forEach(b => b.onclick = () => showProduct(b.dataset.view));
   renderPagination();

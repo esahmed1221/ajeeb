@@ -38,12 +38,10 @@ function render() {
   $('productCount').textContent = pagination.totalItems;
   $('previewNote').classList.toggle('hidden', !products.some(p => p.demo));
   $('empty').classList.toggle('hidden', shown.length > 0);
-  $('products').innerHTML = shown.map(p => { const stock = Object.values(p.sizes).reduce((a, b) => a + b, 0); const discount = p.oldPrice > p.price ? Math.round((1 - p.price / p.oldPrice) * 100) : 0; const selected = selectedCardSizes.get(p.id);
-    return `<article class="product-card"><button class="product-photo photo-open" data-view="${p.id}" aria-label="تفاصيل ${esc(p.name)}">${photo(p)}${discount ? `<span class="badge">خصم ${discount}%</span>` : ''}</button><div class="card-info"><div class="code-line"><span>${esc(p.code)}</span></div><h3>${esc(p.name)}</h3><div><span class="price">${money(p.price)}</span>${p.oldPrice ? `<span class="old">${money(p.oldPrice)}</span>` : ''}</div><div class="card-sizes" role="group" aria-label="مقاسات ${esc(p.name)}">${available(p).map(s => `<button type="button" data-card-size="${s}" data-product="${p.id}" class="${selected === s ? 'active' : ''}" aria-pressed="${selected === s}">${s}</button>`).join('')}</div><button class="button navy" data-add-card="${p.id}" ${stock ? '' : 'disabled'}>${stock ? p.demo ? 'منتج للمعاينة فقط' : selected ? 'إضافة إلى السلة' : 'اختار المقاس أولًا' : 'نفد المخزون'}</button></div></article>`;
+  $('products').innerHTML = shown.map(p => { const stock = Object.values(p.sizes).reduce((a, b) => a + b, 0); const discount = p.oldPrice > p.price ? Math.round((1 - p.price / p.oldPrice) * 100) : 0;
+    return `<article class="product-card"><button class="product-photo photo-open" data-view="${p.id}" aria-label="تفاصيل ${esc(p.name)}">${photo(p)}${discount ? `<span class="badge">خصم ${discount}%</span>` : ''}</button><div class="card-info"><div class="code-line"><span>${esc(p.code)}</span></div><h3>${esc(p.name)}</h3><div><span class="price">${money(p.price)}</span>${p.oldPrice ? `<span class="old">${money(p.oldPrice)}</span>` : ''}</div><button class="button navy" data-view="${p.id}" ${stock ? '' : 'disabled'}>${stock ? 'عرض المقاسات' : 'نفد المخزون'}</button></div></article>`;
   }).join('');
   $('products').querySelectorAll('[data-view]').forEach(b => b.onclick = () => showProduct(b.dataset.view));
-  $('products').querySelectorAll('[data-card-size]').forEach(b => b.onclick = () => { selectedCardSizes.set(b.dataset.product, b.dataset.cardSize); render(); });
-  $('products').querySelectorAll('[data-add-card]').forEach(b => b.onclick = () => { const p = findProduct(b.dataset.addCard); const size = selectedCardSizes.get(p.id); if (p.demo || !size) return showProduct(p.id); addToCart(p, size); });
   renderPagination();
   renderCart();
 }

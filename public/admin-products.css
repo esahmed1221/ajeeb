@@ -1,0 +1,34 @@
+.admin-product-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.admin-row .product-delete {
+  border-color: #f1c4cb;
+  background: #fff3f5;
+  color: #ae263c;
+}
+
+.admin-row .product-delete:hover {
+  background: #ae263c;
+  border-color: #ae263c;
+  color: #fff;
+}
+
+.admin-product-actions button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+  .admin-product-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-product-actions button {
+    padding: 7px 9px;
+    font-size: 11px;
+  }
+}

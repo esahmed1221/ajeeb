@@ -225,6 +225,19 @@ async function findProduct(driver, id) {
   const result = await driver.query(`${productSelect} WHERE p.id=$1`, [id]);
   return result.rows[0] ? mapProduct(result.rows[0]) : null;
 }
+async function deleteProduct(driver, id) {
+  return driver.transaction(async tx => {
+    const result = await tx.query(`${productSelect} WHERE p.id=$1 FOR UPDATE`, [id]);
+    if (!result.rows[0]) return null;
+    const product = mapProduct(result.rows[0]);
+    await tx.query('DELETE FROM products WHERE id=$1', [id]);
+    return product;
+  });
+}
+async function imagePathInUse(driver, imagePath) {
+  const result = await driver.query(`SELECT 1 FROM product_images WHERE path=$1 UNION ALL SELECT 1 FROM store_settings WHERE hero_image=$1 OR hero_mobile_image=$1 LIMIT 1`, [imagePath]);
+  return Boolean(result.rowCount);
+}
 async function listOrders(driver) {
   const result = await driver.query(`${orderSelect} ORDER BY o.created_at DESC`);
   return result.rows.map(mapOrder);
@@ -268,6 +281,8 @@ export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
     listAvailableSizes: () => listAvailableSizes(driver),
     listProductsByIds: ids => listProductsByIds(driver, ids),
     findProduct: id => findProduct(driver, id),
+    deleteProduct: id => deleteProduct(driver, id),
+    imagePathInUse: imagePath => imagePathInUse(driver, imagePath),
     productCodeExists: async (code, excludedId = null) => {
       const result = await driver.query('SELECT 1 FROM products WHERE code=$1 AND ($2::uuid IS NULL OR id<>$2::uuid) LIMIT 1', [code, excludedId]);
       return Boolean(result.rowCount);
@@ -327,7 +342,7 @@ export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
         if (currentRestored && !['ملغي', 'راجع'].includes(status)) { const error = new Error('STOCK_ALREADY_RESTORED'); error.code = 'STOCK_ALREADY_RESTORED'; throw error; }
         const restoreStock = Boolean(restoreRequested && !currentRestored && ['ملغي', 'راجع'].includes(status));
         if (restoreStock) {
-          await tx.query(`INSERT INTO inventory (product_id,size,stock) SELECT product_id,size,quantity FROM order_items WHERE order_id=$1 ON CONFLICT (product_id,size) DO UPDATE SET stock=inventory.stock+EXCLUDED.stock`, [id]);
+          await tx.query(`INSERT INTO inventory (product_id,size,stock) SELECT oi.product_id,oi.size,oi.quantity FROM order_items oi JOIN products p ON p.id=oi.product_id WHERE oi.order_id=$1 ON CONFLICT (product_id,size) DO UPDATE SET stock=inventory.stock+EXCLUDED.stock`, [id]);
         }
         await tx.query('UPDATE orders SET status=$2,stock_restored=$3 WHERE id=$1', [id, status, currentRestored || restoreStock]);
         const updated = await tx.query(`${orderSelect} WHERE o.id=$1`, [id]);

@@ -78,8 +78,15 @@ function renderStats() {
   $('recentOrders').innerHTML = db.orders.length ? db.orders.slice(0, 5).map(o => `<div class="recent-row"><div><b>${esc(o.number)}</b><small>${esc(o.customer.name)} · ${esc(o.customer.city)}</small></div><span class="status-pill">${esc(o.status)}</span><strong>${money(o.total)}</strong></div>`).join('') : '<p class="empty-list">ما فيش طلبات توا.</p>';
 }
 function renderProducts() {
-  $('productList').innerHTML = db.products.length ? db.products.map(p => `<div class="admin-row"><div>${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="">` : '<span class="empty-img">👟</span>'}</div><div><h3>${esc(p.name)} <span class="status-pill">${p.active ? 'ظاهر' : 'مخفي'}</span></h3><p>${esc(p.code)} • ${money(p.price)} • ${Object.values(p.sizes).reduce((a, b) => a + b, 0)} قطعة</p></div>${can('products.manage') ? `<button data-edit="${p.id}">تعديل</button>` : ''}</div>`).join('') : '<p class="empty-list">ما فيش منتجات.</p>';
+  $('productList').innerHTML = db.products.length ? db.products.map(p => `<div class="admin-row"><div>${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="">` : '<span class="empty-img">👟</span>'}</div><div><h3>${esc(p.name)} <span class="status-pill">${p.active ? 'ظاهر' : 'مخفي'}</span></h3><p>${esc(p.code)} • ${money(p.price)} • ${Object.values(p.sizes).reduce((a, b) => a + b, 0)} قطعة</p></div>${can('products.manage') ? `<div class="admin-product-actions"><button data-edit="${p.id}">تعديل</button><button class="product-delete" data-delete-product="${p.id}">حذف نهائي</button></div>` : ''}</div>`).join('') : '<p class="empty-list">ما فيش منتجات.</p>';
   $('productList').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openEditor(db.products.find(p => p.id === b.dataset.edit)));
+  $('productList').querySelectorAll('[data-delete-product]').forEach(button => button.onclick = async () => {
+    const product = db.products.find(item => item.id === button.dataset.deleteProduct);
+    if (!product || !confirm(`حذف «${product.name}» نهائيًا؟\n\nسيُحذف المنتج ومخزونه وصوره، ولا يمكن التراجع. ستبقى بياناته داخل الطلبات القديمة فقط.`)) return;
+    button.disabled = true;
+    try { await api(`/api/admin/products/${product.id}`, { method: 'DELETE' }); await load(); }
+    catch (e) { button.disabled = false; alert(e.message); }
+  });
 }
 function localDay(iso) { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 function renderOrders() {

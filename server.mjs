@@ -271,6 +271,18 @@ const server = http.createServer(async (req, res) => {
         catch (error) { if (error.code === '23505') return fail(res, 400, 'كود المنتج مستخدم'); throw error; }
         return send(res, 200, updated);
       }
+      if (productMatch && req.method === 'DELETE') {
+        if (!can(person, 'products.manage')) return fail(res, 403, 'ليس لديك صلاحية حذف المنتجات');
+        const deleted = await storage.deleteProduct(productMatch[1]);
+        if (!deleted) return fail(res, 404, 'المنتج غير موجود');
+        for (const imagePath of deleted.images) {
+          if (!/^\/uploads\/[a-f0-9-]+\.(png|jpg|webp)$/.test(imagePath) || await storage.imagePathInUse(imagePath)) continue;
+          const imageFile = path.resolve(uploadDir, imagePath.slice('/uploads/'.length));
+          if (!imageFile.startsWith(uploadDir + path.sep)) continue;
+          try { fs.unlinkSync(imageFile); } catch (error) { if (error.code !== 'ENOENT') console.error(`Failed to remove product image ${imagePath}: ${error.message}`); }
+        }
+        return send(res, 200, { ok: true, id: deleted.id });
+      }
       if (pathname === '/api/admin/upload' && req.method === 'POST') {
         const input = await body(req, 11_000_000); const raw = String(input.data || '');
         const needed = input.kind === 'homepage' ? 'settings.manage' : 'products.manage';

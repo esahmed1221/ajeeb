@@ -64,6 +64,13 @@ try {
   assert.equal((await storage.listCatalogPage({ page: 1, pageSize: 15, size: '43' })).totalItems, 1);
   assert.deepEqual(await storage.listAvailableSizes(), ['42', '43']);
   assert.equal((await storage.listProductsByIds([product.id, pageProducts[0].id])).length, 2);
+  const deletedProduct = await storage.deleteProduct(product.id);
+  assert.equal(deletedProduct.id, product.id);
+  assert.equal(await storage.findProduct(product.id), null);
+  assert.equal((await storage.listOrders()).find(item => item.id === repeatOrder.id).items[0].code, product.code);
+  const cancelledDeletedProductOrder = await storage.updateOrderStatus(repeatOrder.id, 'ملغي', true);
+  assert.equal(cancelledDeletedProductOrder.stockRestored, true);
+  assert.equal(await storage.deleteProduct(product.id), null);
 
   const now = new Date().toISOString();
   const staff = { id: crypto.randomUUID(), name: 'موظف اختبار', username: 'test.staff', active: true, permissions: ['orders.view'], salt: 'test-salt', hash: 'test-hash', sessionVersion: 1, createdAt: now, updatedAt: now };

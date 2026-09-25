@@ -313,7 +313,7 @@ const server = http.createServer(async (req, res) => {
       return serveFile(res, path.join(uploadDir, name));
     }
     if (req.method !== 'GET') return fail(res, 405, 'طريقة غير مسموحة');
-    const file = pathname === '/admin' ? 'admin.html' : pathname === '/' ? 'index.html' : pathname.slice(1);
+    const file = pathname === '/admin' ? 'admin.html' : ['/', '/checkout', '/checkout/'].includes(pathname) ? 'index.html' : pathname.slice(1);
     const resolved = path.resolve(publicDir, file);
     if (!resolved.startsWith(publicDir + path.sep) && resolved !== publicDir) return fail(res, 404, 'غير موجود');
     return serveFile(res, resolved);

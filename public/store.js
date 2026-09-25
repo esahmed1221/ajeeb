@@ -10,6 +10,7 @@ let products = [], availableSizes = [], settings = { delivery: {}, phone: '', ex
 let pagination = { page: 1, pageSize: 15, totalItems: 0, totalPages: 0 }, catalogRequest = 0, searchTimer;
 const selectedCardSizes = new Map();
 const productCache = new Map();
+const checkoutPath = '/checkout', storePageTitle = document.title;
 try { cart = JSON.parse(localStorage.getItem('ajeeb_cart') || '[]'); if (!Array.isArray(cart)) cart = []; } catch { cart = []; }
 const saveCart = () => localStorage.setItem('ajeeb_cart', JSON.stringify(cart));
 const rememberProducts = list => list.forEach(product => productCache.set(product.id, product));
@@ -55,7 +56,16 @@ function addToCart(p, size, { openCart = true } = {}) {
   return true;
 }
 function showLayer(name) { $('overlay').classList.remove('hidden'); $(name).classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
-function closeLayers() { for (const id of ['overlay', 'cartDrawer', 'productModal', 'checkoutModal']) $(id).classList.add('hidden'); document.body.style.overflow = ''; }
+function hideLayers() { for (const id of ['overlay', 'cartDrawer', 'productModal', 'checkoutModal']) $(id).classList.add('hidden'); document.body.style.overflow = ''; }
+function syncPageTitle() { document.title = location.pathname === checkoutPath ? 'إتمام الطلب | عجيب للأحذية' : storePageTitle; }
+function closeLayers() {
+  if (location.pathname === checkoutPath && !$('checkoutModal').classList.contains('hidden')) {
+    if (history.state?.ajeebCheckout) history.back();
+    else { history.replaceState(null, '', '/'); hideLayers(); syncPageTitle(); }
+    return;
+  }
+  hideLayers();
+}
 function showProduct(id) {
   const p = findProduct(id); if (!p) return; selectedSize = selectedCardSizes.get(id) || '';
   $('productDetail').innerHTML = `<div class="detail-grid"><div><div class="detail-main-image" id="detailMain">${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="${esc(p.name)}">` : '<span aria-hidden="true">عجيب</span>'}</div><div class="thumbs">${(p.images || []).map((img, i) => `<button data-img="${i}" aria-label="الصورة ${i + 1}"><img src="${esc(img)}" alt=""></button>`).join('')}</div></div><div class="detail-info"><small>${esc(p.code)}</small><h2>${esc(p.name)}</h2><div><span class="price">${money(p.price)}</span>${p.oldPrice ? `<span class="old">${money(p.oldPrice)}</span>` : ''}</div><p>المقاسات المتوفرة:</p><div class="detail-sizes">${available(p).map(s => `<button class="size-pill" data-choice="${s}">${s}</button>`).join('')}</div><p>التوصيل داخل ليبيا • الدفع عند الاستلام</p><div class="detail-actions"><button id="addCart" class="button teal" ${p.demo || !selectedSize ? 'disabled' : ''}>${p.demo ? 'منتج للمعاينة فقط' : selectedSize ? 'إضافة إلى السلة' : 'اختار المقاس أولًا'}</button><button id="buyNow" class="button navy" ${p.demo || !selectedSize ? 'disabled' : ''}>شراء الآن — الدفع عند الاستلام</button></div></div></div>`;
@@ -75,8 +85,10 @@ function renderCart() {
   $('cartItems').querySelectorAll('[data-action]').forEach(b => b.onclick = () => { const i = Number(b.dataset.index), x = cart[i], p = findProduct(x.productId); if (b.dataset.action === 'remove') cart.splice(i, 1); else if (b.dataset.action === 'minus') { x.qty--; if (!x.qty) cart.splice(i, 1); } else if (p && x.qty < p.sizes[x.size]) x.qty++; saveCart(); renderCart(); });
   $('checkoutBtn').disabled = !cart.length || unresolved;
 }
-function showCheckout() {
-  if (!cart.length) return; closeLayers();
+function showCheckout({ updateHistory = true } = {}) {
+  if (!cart.length || cart.some(item => !findProduct(item.productId))) return; hideLayers();
+  if (updateHistory && location.pathname !== checkoutPath) history.pushState({ ajeebCheckout: true }, '', checkoutPath);
+  syncPageTitle();
   const cities = Object.keys(settings.delivery || {}).sort((a, b) => a.localeCompare(b, 'ar'));
   $('city').innerHTML = `<option value="">اختر المدينة</option>${cities.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}`;
   $('orderError').classList.toggle('hidden', cities.length > 0);
@@ -151,6 +163,10 @@ async function submitOrder(e) {
 async function init() {
   const loaded = await loadCatalog(1);
   if (loaded) await hydrateCartProducts();
+  if (location.pathname === checkoutPath) {
+    if (cart.length && cart.every(item => findProduct(item.productId))) showCheckout({ updateHistory: false });
+    else { history.replaceState(null, '', '/'); syncPageTitle(); }
+  } else syncPageTitle();
   startPresence();
 }
 $('search').oninput = e => { query = e.target.value.trim(); clearTimeout(searchTimer); searchTimer = setTimeout(() => loadCatalog(1, { scroll: true }), 300); };
@@ -160,4 +176,8 @@ $('openCart').onclick = async () => { renderCart(); showLayer('cartDrawer'); awa
 $('closeCart').onclick = closeLayers; $('closeProduct').onclick = closeLayers; $('closeCheckout').onclick = closeLayers; $('overlay').onclick = closeLayers;
 $('checkoutBtn').onclick = showCheckout; $('city').onchange = updateTotals; $('checkoutForm').onsubmit = submitOrder;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLayers(); });
+window.addEventListener('popstate', () => {
+  if (location.pathname === checkoutPath && cart.length) showCheckout({ updateHistory: false });
+  else { hideLayers(); syncPageTitle(); }
+});
 init();

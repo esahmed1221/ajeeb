@@ -157,6 +157,15 @@ async function migrateSequentialOrderNumbers(driver) {
   });
 }
 
+async function migrateOrderNumberFloor(driver) {
+  const already = await driver.query('SELECT 1 FROM schema_migrations WHERE version=5');
+  if (already.rowCount) return;
+  await driver.transaction(async tx => {
+    await tx.query('UPDATE order_counter SET last_number=GREATEST(last_number,4999) WHERE id=1');
+    await tx.query('INSERT INTO schema_migrations (version) VALUES (5)');
+  });
+}
+
 const productSelect = `
   SELECT p.*,
     COALESCE((SELECT jsonb_agg(pi.path ORDER BY pi.position) FROM product_images pi WHERE pi.product_id=p.id), '[]'::jsonb) AS images,
@@ -273,7 +282,7 @@ async function getSettings(driver) {
 export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
   fs.mkdirSync(dataDir, { recursive: true });
   const driver = await createDriver(databaseUrl, databaseConfig, path.join(dataDir, 'postgres'));
-  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver);
+  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver); await migrateOrderNumberFloor(driver);
   return {
     kind: driver.kind,
     listProducts: ({ activeOnly = false } = {}) => listProducts(driver, activeOnly),

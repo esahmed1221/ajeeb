@@ -25,7 +25,7 @@ try {
   assert.equal((await storage.listProducts({ activeOnly: true }))[0].sizes['42'], 3);
 
   const order = await storage.createOrder({ id: crypto.randomUUID(), customer: { name: 'عميل اختبار', phone: '0910000000', city: 'طرابلس', address: 'عنوان اختبار صالح', notes: '' }, lines: [{ productId: product.id, size: '42', qty: 2 }], createdAt: new Date().toISOString() });
-  assert.equal(order.number, '1');
+  assert.equal(order.number, '5000');
   assert.equal(order.subtotal, 240);
   assert.equal(order.total, 250);
   assert.equal((await storage.findProduct(product.id)).sizes['42'], 1);
@@ -40,7 +40,7 @@ try {
   assert.equal((await storage.findProduct(product.id)).sizes['42'], 3);
 
   const repeatOrder = await storage.createOrder({ id: crypto.randomUUID(), customer: { name: 'عميل اختبار محدّث', phone: '(091) 000-0000', city: 'طرابلس', address: 'عنوان اختبار جديد', notes: '' }, lines: [{ productId: product.id, size: '42', qty: 1 }], createdAt: new Date().toISOString() });
-  assert.equal(repeatOrder.number, '2');
+  assert.equal(repeatOrder.number, '5001');
   const customers = await storage.listCustomers();
   assert.equal(customers.length, 1);
   assert.equal(repeatOrder.customerId, order.customerId);

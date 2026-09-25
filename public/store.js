@@ -45,22 +45,24 @@ function render() {
   renderPagination();
   renderCart();
 }
-function addToCart(p, size) {
-  if (p.demo || !size || !p.sizes[size]) return;
+function addToCart(p, size, { openCart = true } = {}) {
+  if (p.demo || !size || !p.sizes[size]) return false;
   const existing = cart.find(x => x.productId === p.id && x.size === size);
-  if ((existing?.qty || 0) >= p.sizes[size]) { alert('الكمية المتوفرة لهذا المقاس وصلت للحد'); return; }
+  if ((existing?.qty || 0) >= p.sizes[size]) { alert('الكمية المتوفرة لهذا المقاس وصلت للحد'); return false; }
   if (existing) existing.qty++; else cart.push({ productId: p.id, size, qty: 1 });
-  saveCart(); closeLayers(); renderCart(); showLayer('cartDrawer');
+  saveCart(); closeLayers(); renderCart();
+  if (openCart) showLayer('cartDrawer');
+  return true;
 }
 function showLayer(name) { $('overlay').classList.remove('hidden'); $(name).classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
 function closeLayers() { for (const id of ['overlay', 'cartDrawer', 'productModal', 'checkoutModal']) $(id).classList.add('hidden'); document.body.style.overflow = ''; }
 function showProduct(id) {
   const p = findProduct(id); if (!p) return; selectedSize = selectedCardSizes.get(id) || '';
-  $('productDetail').innerHTML = `<div class="detail-grid"><div><div class="detail-main-image" id="detailMain">${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="${esc(p.name)}">` : '<span aria-hidden="true">عجيب</span>'}</div><div class="thumbs">${(p.images || []).map((img, i) => `<button data-img="${i}" aria-label="الصورة ${i + 1}"><img src="${esc(img)}" alt=""></button>`).join('')}</div></div><div class="detail-info"><small>${esc(p.code)}</small><h2>${esc(p.name)}</h2><div><span class="price">${money(p.price)}</span>${p.oldPrice ? `<span class="old">${money(p.oldPrice)}</span>` : ''}</div><p>المقاسات المتوفرة:</p><div class="detail-sizes">${available(p).map(s => `<button class="size-pill" data-choice="${s}">${s}</button>`).join('')}</div><p>التوصيل داخل ليبيا • الدفع عند الاستلام</p><button id="addCart" class="button teal">${p.demo ? 'منتج للمعاينة فقط' : 'اختار المقاس أولًا'}</button></div></div>`;
-  $('productDetail').querySelectorAll('[data-choice]').forEach(b => { b.classList.toggle('active', b.dataset.choice === selectedSize); b.onclick = () => { selectedSize = b.dataset.choice; selectedCardSizes.set(p.id, selectedSize); $('productDetail').querySelectorAll('[data-choice]').forEach(x => x.classList.toggle('active', x === b)); $('addCart').textContent = p.demo ? 'منتج للمعاينة فقط' : 'إضافة إلى السلة'; }; });
-  if (selectedSize && !p.demo) $('addCart').textContent = 'إضافة إلى السلة';
+  $('productDetail').innerHTML = `<div class="detail-grid"><div><div class="detail-main-image" id="detailMain">${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="${esc(p.name)}">` : '<span aria-hidden="true">عجيب</span>'}</div><div class="thumbs">${(p.images || []).map((img, i) => `<button data-img="${i}" aria-label="الصورة ${i + 1}"><img src="${esc(img)}" alt=""></button>`).join('')}</div></div><div class="detail-info"><small>${esc(p.code)}</small><h2>${esc(p.name)}</h2><div><span class="price">${money(p.price)}</span>${p.oldPrice ? `<span class="old">${money(p.oldPrice)}</span>` : ''}</div><p>المقاسات المتوفرة:</p><div class="detail-sizes">${available(p).map(s => `<button class="size-pill" data-choice="${s}">${s}</button>`).join('')}</div><p>التوصيل داخل ليبيا • الدفع عند الاستلام</p><div class="detail-actions"><button id="addCart" class="button teal" ${p.demo || !selectedSize ? 'disabled' : ''}>${p.demo ? 'منتج للمعاينة فقط' : selectedSize ? 'إضافة إلى السلة' : 'اختار المقاس أولًا'}</button><button id="buyNow" class="button navy" ${p.demo || !selectedSize ? 'disabled' : ''}>شراء الآن — الدفع عند الاستلام</button></div></div></div>`;
+  $('productDetail').querySelectorAll('[data-choice]').forEach(b => { b.classList.toggle('active', b.dataset.choice === selectedSize); b.onclick = () => { selectedSize = b.dataset.choice; selectedCardSizes.set(p.id, selectedSize); $('productDetail').querySelectorAll('[data-choice]').forEach(x => x.classList.toggle('active', x === b)); $('addCart').textContent = p.demo ? 'منتج للمعاينة فقط' : 'إضافة إلى السلة'; $('addCart').disabled = p.demo; $('buyNow').disabled = p.demo; }; });
   $('productDetail').querySelectorAll('[data-img]').forEach(b => b.onclick = () => { const img = p.images[Number(b.dataset.img)]; $('detailMain').innerHTML = `<img src="${esc(img)}" alt="${esc(p.name)}">`; });
   $('addCart').onclick = () => { if (p.demo) return; if (!selectedSize) return; addToCart(p, selectedSize); };
+  $('buyNow').onclick = () => { if (p.demo || !selectedSize) return; if (addToCart(p, selectedSize, { openCart: false })) showCheckout(); };
   showLayer('productModal');
 }
 function renderCart() {

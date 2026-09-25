@@ -85,6 +85,16 @@ function renderCart() {
   $('cartItems').querySelectorAll('[data-action]').forEach(b => b.onclick = () => { const i = Number(b.dataset.index), x = cart[i], p = findProduct(x.productId); if (b.dataset.action === 'remove') cart.splice(i, 1); else if (b.dataset.action === 'minus') { x.qty--; if (!x.qty) cart.splice(i, 1); } else if (p && x.qty < p.sizes[x.size]) x.qty++; saveCart(); renderCart(); });
   $('checkoutBtn').disabled = !cart.length || unresolved;
 }
+function renderCheckoutItems() {
+  $('checkoutItems').innerHTML = cart.map((item, index) => { const product = findProduct(item.productId); if (!product) return '';
+    return `<div class="checkout-item"><div class="checkout-item-photo">${product.images?.[0] ? `<img src="${esc(product.images[0])}" alt="">` : '<span aria-hidden="true">👟</span>'}</div><div class="checkout-item-info"><strong>${esc(product.name)}</strong><small>المقاس ${esc(item.size)} • الكمية ${item.qty}</small><b>${money(product.price * item.qty)}</b></div><button type="button" class="checkout-remove" data-checkout-remove="${index}" aria-label="إزالة ${esc(product.name)} من الطلب">إزالة</button></div>`;
+  }).join('');
+  $('checkoutItems').querySelectorAll('[data-checkout-remove]').forEach(button => button.onclick = () => {
+    cart.splice(Number(button.dataset.checkoutRemove), 1); saveCart(); renderCart();
+    if (!cart.length) { closeLayers(); return; }
+    renderCheckoutItems(); updateTotals();
+  });
+}
 function showCheckout({ updateHistory = true } = {}) {
   if (!cart.length || cart.some(item => !findProduct(item.productId))) return; hideLayers();
   if (updateHistory && location.pathname !== checkoutPath) history.pushState({ ajeebCheckout: true }, '', checkoutPath);
@@ -94,7 +104,7 @@ function showCheckout({ updateHistory = true } = {}) {
   $('orderError').classList.toggle('hidden', cities.length > 0);
   $('orderError').textContent = cities.length ? '' : 'الطلب غير متاح حتى يحدد المتجر أسعار التوصيل.';
   $('checkoutForm').querySelector('button[type=submit]').disabled = !cities.length;
-  updateTotals(); showLayer('checkoutModal');
+  renderCheckoutItems(); updateTotals(); showLayer('checkoutModal');
 }
 function updateTotals() { const sum = cart.reduce((n, x) => n + findProduct(x.productId).price * x.qty, 0); const fee = settings.delivery[$('city').value]; $('checkoutSubtotal').textContent = money(sum); $('deliveryFee').textContent = fee === undefined ? 'اختر المدينة' : money(fee); $('grandTotal').textContent = fee === undefined ? money(sum) : money(sum + fee); }
 async function api(url, options = {}) { const res = await fetch(url, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...options }); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'حدث خطأ'); return data; }

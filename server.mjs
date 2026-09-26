@@ -187,7 +187,7 @@ const server = http.createServer(async (req, res) => {
       const number = BigInt(rawNumber).toString();
       const order = await storage.findOrderForTracking(number, phone);
       if (!order) return fail(res, 404, 'رقم الطلب أو الهاتف غير صحيح');
-      const items = order.items.map(item => ({ code: item.code, name: item.name, size: item.size, qty: item.qty, price: item.price }));
+      const items = order.items.map(item => ({ code: item.code, name: item.name, image: validImagePath(item.image) ? item.image : '', size: item.size, qty: item.qty, price: item.price }));
       return send(res, 200, { number: order.number, createdAt: order.createdAt, items, ...publicTrackingStatus(order.status) });
     }
     if (pathname === '/api/order' && req.method === 'POST') {

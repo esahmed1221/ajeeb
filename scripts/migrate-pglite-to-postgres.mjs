@@ -88,8 +88,8 @@ async function insertSnapshot(client, snapshot) {
     );
     for (const item of order.items) {
       await client.query(
-        'INSERT INTO order_items (order_id,product_id,product_code,product_name,size,quantity,unit_price) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-        [order.id, item.productId, item.code, item.name, Number(item.size), item.qty, item.price]
+        'INSERT INTO order_items (order_id,product_id,product_code,product_name,product_image,size,quantity,unit_price) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [order.id, item.productId, item.code, item.name, item.image || '', Number(item.size), item.qty, item.price]
       );
     }
   }

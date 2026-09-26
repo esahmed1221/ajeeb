@@ -19,7 +19,7 @@ try {
   await storage.saveSettings({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10 }, heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '-1001234567890' });
   assert.equal((await storage.getSettings()).telegramChatId, '-1001234567890');
 
-  const product = { id: crypto.randomUUID(), code: 'TEST-1', name: 'منتج اختبار', price: 120, oldPrice: 150, active: true, updatedAt: new Date().toISOString(), images: [], sizes: { 42: 3 } };
+  const product = { id: crypto.randomUUID(), code: 'TEST-1', name: 'منتج اختبار', price: 120, oldPrice: 150, active: true, updatedAt: new Date().toISOString(), images: ['/products/test.png'], sizes: { 42: 3 } };
   await storage.saveProduct(product);
   assert.equal(await storage.productCodeExists(product.code), true);
   assert.equal((await storage.listProducts({ activeOnly: true }))[0].sizes['42'], 3);
@@ -33,6 +33,7 @@ try {
   assert.equal(trackedOrder.items.length, 1);
   assert.equal(trackedOrder.items[0].code, product.code);
   assert.equal(trackedOrder.items[0].name, product.name);
+  assert.equal(trackedOrder.items[0].image, product.images[0]);
   assert.equal(trackedOrder.items[0].size, '42');
   assert.equal(trackedOrder.items[0].qty, 2);
   assert.equal(trackedOrder.items[0].price, 120);
@@ -77,6 +78,8 @@ try {
   assert.equal(deletedProduct.id, product.id);
   assert.equal(await storage.findProduct(product.id), null);
   assert.equal((await storage.listOrders()).find(item => item.id === repeatOrder.id).items[0].code, product.code);
+  assert.equal((await storage.listOrders()).find(item => item.id === repeatOrder.id).items[0].image, product.images[0]);
+  assert.equal(await storage.imagePathInUse(product.images[0]), true);
   const cancelledDeletedProductOrder = await storage.updateOrderStatus(repeatOrder.id, 'ملغي', true);
   assert.equal(cancelledDeletedProductOrder.stockRestored, true);
   assert.equal(await storage.deleteProduct(product.id), null);

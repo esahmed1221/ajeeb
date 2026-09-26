@@ -67,7 +67,8 @@ async function createSchema(driver) {
     ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_id uuid REFERENCES customers(id) ON DELETE RESTRICT;
     CREATE TABLE IF NOT EXISTS order_counter (id smallint PRIMARY KEY CHECK (id = 1), last_number bigint NOT NULL DEFAULT 0 CHECK (last_number >= 0));
     INSERT INTO order_counter (id,last_number) SELECT 1,count(*) FROM orders ON CONFLICT (id) DO NOTHING;
-    CREATE TABLE IF NOT EXISTS order_items (order_id uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE, product_id uuid NOT NULL, product_code varchar(40) NOT NULL, product_name varchar(120) NOT NULL, size smallint NOT NULL, quantity integer NOT NULL CHECK (quantity > 0), unit_price integer NOT NULL CHECK (unit_price >= 0), PRIMARY KEY (order_id, product_id, size));
+    CREATE TABLE IF NOT EXISTS order_items (order_id uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE, product_id uuid NOT NULL, product_code varchar(40) NOT NULL, product_name varchar(120) NOT NULL, product_image text NOT NULL DEFAULT '', size smallint NOT NULL, quantity integer NOT NULL CHECK (quantity > 0), unit_price integer NOT NULL CHECK (unit_price >= 0), PRIMARY KEY (order_id, product_id, size));
+    ALTER TABLE order_items ADD COLUMN IF NOT EXISTS product_image text NOT NULL DEFAULT '';
     CREATE INDEX IF NOT EXISTS customers_updated_at_idx ON customers (updated_at DESC);
     CREATE INDEX IF NOT EXISTS customers_name_idx ON customers (name);
     CREATE INDEX IF NOT EXISTS orders_customer_id_idx ON orders (customer_id);
@@ -166,6 +167,18 @@ async function migrateOrderNumberFloor(driver) {
   });
 }
 
+async function migrateOrderItemImages(driver) {
+  const already = await driver.query('SELECT 1 FROM schema_migrations WHERE version=6');
+  if (already.rowCount) return;
+  await driver.transaction(async tx => {
+    await tx.query("ALTER TABLE order_items ADD COLUMN IF NOT EXISTS product_image text NOT NULL DEFAULT ''");
+    await tx.query(`UPDATE order_items oi SET product_image=COALESCE((
+      SELECT pi.path FROM product_images pi WHERE pi.product_id=oi.product_id ORDER BY pi.position LIMIT 1
+    ),'') WHERE oi.product_image=''`);
+    await tx.query('INSERT INTO schema_migrations (version) VALUES (6)');
+  });
+}
+
 const productSelect = `
   SELECT p.*,
     COALESCE((SELECT jsonb_agg(pi.path ORDER BY pi.position) FROM product_images pi WHERE pi.product_id=p.id), '[]'::jsonb) AS images,
@@ -173,7 +186,7 @@ const productSelect = `
   FROM products p`;
 const orderSelect = `
   SELECT o.*,
-    COALESCE((SELECT jsonb_agg(jsonb_build_object('productId',oi.product_id,'code',oi.product_code,'name',oi.product_name,'size',oi.size::text,'qty',oi.quantity,'price',oi.unit_price) ORDER BY oi.product_id,oi.size) FROM order_items oi WHERE oi.order_id=o.id), '[]'::jsonb) AS items
+    COALESCE((SELECT jsonb_agg(jsonb_build_object('productId',oi.product_id,'code',oi.product_code,'name',oi.product_name,'image',oi.product_image,'size',oi.size::text,'qty',oi.quantity,'price',oi.unit_price) ORDER BY oi.product_id,oi.size) FROM order_items oi WHERE oi.order_id=o.id), '[]'::jsonb) AS items
   FROM orders o`;
 
 function mapProduct(row) {
@@ -187,7 +200,7 @@ function mapSettings(row) {
   return row ? { phone: row.phone, exchangePolicy: row.exchange_policy, privacyPolicy: row.privacy_policy, delivery: jsonValue(row.delivery, {}), heroImage: row.hero_image, heroMobileImage: row.hero_mobile_image, heroTitle: row.hero_title, heroSubtitle: row.hero_subtitle, telegramChatId: row.telegram_chat_id || '' } : emptySettings();
 }
 function mapOrder(row) {
-  const items = jsonValue(row.items, []).map(item => ({ productId: item.productId, code: item.code, name: item.name, size: String(item.size), qty: Number(item.qty), price: Number(item.price) }));
+  const items = jsonValue(row.items, []).map(item => ({ productId: item.productId, code: item.code, name: item.name, image: item.image || '', size: String(item.size), qty: Number(item.qty), price: Number(item.price) }));
   return { id: row.id, number: row.number, customerId: row.customer_id, customer: { name: row.customer_name, phone: row.customer_phone, city: row.customer_city, address: row.customer_address, notes: row.customer_notes }, items, subtotal: Number(row.subtotal), delivery: Number(row.delivery), total: Number(row.total), status: row.status, stockRestored: row.stock_restored, createdAt: new Date(row.created_at).toISOString() };
 }
 function mapCustomer(row) {
@@ -244,7 +257,7 @@ async function deleteProduct(driver, id) {
   });
 }
 async function imagePathInUse(driver, imagePath) {
-  const result = await driver.query(`SELECT 1 FROM product_images WHERE path=$1 UNION ALL SELECT 1 FROM store_settings WHERE hero_image=$1 OR hero_mobile_image=$1 LIMIT 1`, [imagePath]);
+  const result = await driver.query(`SELECT 1 FROM product_images WHERE path=$1 UNION ALL SELECT 1 FROM order_items WHERE product_image=$1 UNION ALL SELECT 1 FROM store_settings WHERE hero_image=$1 OR hero_mobile_image=$1 LIMIT 1`, [imagePath]);
   return Boolean(result.rowCount);
 }
 async function listOrders(driver) {
@@ -288,7 +301,7 @@ async function getSettings(driver) {
 export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
   fs.mkdirSync(dataDir, { recursive: true });
   const driver = await createDriver(databaseUrl, databaseConfig, path.join(dataDir, 'postgres'));
-  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver); await migrateOrderNumberFloor(driver);
+  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver); await migrateOrderNumberFloor(driver); await migrateOrderItemImages(driver);
   return {
     kind: driver.kind,
     listProducts: ({ activeOnly = false } = {}) => listProducts(driver, activeOnly),
@@ -325,13 +338,13 @@ export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
         if (delivery === undefined) { const error = new Error('INVALID_CITY'); error.code = 'INVALID_CITY'; throw error; }
         const items = []; let subtotal = 0;
         for (const line of draft.lines) {
-          const result = await tx.query(`SELECT p.id,p.code,p.name,p.price,p.active,i.stock FROM products p JOIN inventory i ON i.product_id=p.id WHERE p.id=$1 AND i.size=$2 FOR UPDATE`, [line.productId, Number(line.size)]);
+          const result = await tx.query(`SELECT p.id,p.code,p.name,p.price,p.active,i.stock,COALESCE((SELECT pi.path FROM product_images pi WHERE pi.product_id=p.id ORDER BY pi.position LIMIT 1),'') AS image FROM products p JOIN inventory i ON i.product_id=p.id WHERE p.id=$1 AND i.size=$2 FOR UPDATE`, [line.productId, Number(line.size)]);
           const product = result.rows[0];
           if (!product || !product.active || Number(product.stock) < line.qty) { const error = new Error('STOCK_CONFLICT'); error.code = 'STOCK_CONFLICT'; throw error; }
           const updated = await tx.query('UPDATE inventory SET stock=stock-$3 WHERE product_id=$1 AND size=$2 AND stock >= $3 RETURNING stock', [line.productId, Number(line.size), line.qty]);
           if (!updated.rowCount) { const error = new Error('STOCK_CONFLICT'); error.code = 'STOCK_CONFLICT'; throw error; }
           const price = Number(product.price);
-          items.push({ productId: product.id, code: product.code, name: product.name, size: String(line.size), qty: line.qty, price });
+          items.push({ productId: product.id, code: product.code, name: product.name, image: product.image || '', size: String(line.size), qty: line.qty, price });
           subtotal += price * line.qty;
         }
         const phoneKey = customerPhoneKey(draft.customer.phone);
@@ -346,7 +359,7 @@ export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
         const numberResult = await tx.query('UPDATE order_counter SET last_number=last_number+1 WHERE id=1 RETURNING last_number::text AS number');
         const order = { id: draft.id, number: numberResult.rows[0].number, customerId, customer: draft.customer, items, subtotal, delivery: Number(delivery), total: subtotal + Number(delivery), status: 'جديد', stockRestored: false, createdAt: draft.createdAt };
         await tx.query(`INSERT INTO orders (id,number,customer_id,customer_name,customer_phone,customer_city,customer_address,customer_notes,subtotal,delivery,total,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, [order.id, order.number, order.customerId, order.customer.name, order.customer.phone, order.customer.city, order.customer.address, order.customer.notes, order.subtotal, order.delivery, order.total, order.status, order.createdAt]);
-        for (const item of order.items) await tx.query('INSERT INTO order_items (order_id,product_id,product_code,product_name,size,quantity,unit_price) VALUES ($1,$2,$3,$4,$5,$6,$7)', [order.id, item.productId, item.code, item.name, Number(item.size), item.qty, item.price]);
+        for (const item of order.items) await tx.query('INSERT INTO order_items (order_id,product_id,product_code,product_name,product_image,size,quantity,unit_price) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [order.id, item.productId, item.code, item.name, item.image, Number(item.size), item.qty, item.price]);
         return order;
       });
     },

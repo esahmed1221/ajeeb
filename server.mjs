@@ -103,6 +103,17 @@ function liveVisitorCount() {
 function productForPublic(p) {
   return { id: p.id, code: p.code, name: p.name, price: p.price, oldPrice: p.oldPrice, images: p.images, sizes: p.sizes, active: p.active };
 }
+function publicTrackingStatus(status) {
+  return ({
+    'جديد': { status: 'جديد', step: 1 },
+    'تم التأكيد': { status: 'تم التأكيد', step: 2 },
+    'جاري التجهيز': { status: 'تم التأكيد', step: 2 },
+    'خرج للتوصيل': { status: 'خرج للتوصيل', step: 3 },
+    'تم التسليم': { status: 'تم التوصيل', step: 4 },
+    'ملغي': { status: 'ملغي', step: 0 },
+    'راجع': { status: 'راجع', step: 0 }
+  })[status] || { status: 'جديد', step: 1 };
+}
 function validImagePath(value) { return value === '' || value === '/featured-banner.jpg' || /^\/uploads\/[a-f0-9-]+\.(png|jpg|webp)$/.test(value) || /^\/products\/[a-z0-9-]+\.(png|jpg|webp)$/.test(value); }
 async function notifyNewOrder(order) {
   try {
@@ -167,6 +178,16 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req, 1000), visitor = clean(input.visitor, 80);
       if (!/^[A-Za-z0-9_-]{12,80}$/.test(visitor)) return fail(res, 400, 'معرّف غير صالح');
       activeVisitors.set(visitor, Date.now()); return send(res, 200, { ok: true });
+    }
+    if (pathname === '/api/order-status' && req.method === 'POST') {
+      if (limited(req, 'order-status', 240, 3600000)) return fail(res, 429, 'محاولات كثيرة. حاول مرة أخرى لاحقًا.');
+      const input = await body(req, 1000), rawNumber = clean(input.number, 30), phone = clean(input.phone, 25);
+      const phoneDigits = phone.replace(/\D/g, '');
+      if (!/^\d{1,18}$/.test(rawNumber) || !/^[+\d\s()-]{7,25}$/.test(phone) || phoneDigits.length < 7) return fail(res, 400, 'راجع رقم الطلب ورقم الهاتف');
+      const number = BigInt(rawNumber).toString();
+      const order = await storage.findOrderForTracking(number, phone);
+      if (!order) return fail(res, 404, 'رقم الطلب أو الهاتف غير صحيح');
+      return send(res, 200, { number: order.number, createdAt: order.createdAt, ...publicTrackingStatus(order.status) });
     }
     if (pathname === '/api/order' && req.method === 'POST') {
       if (limited(req, 'order', 120, 3600000)) return fail(res, 429, 'حاول مرة أخرى لاحقًا');

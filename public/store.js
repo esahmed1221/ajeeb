@@ -56,7 +56,7 @@ function addToCart(p, size, { openCart = true } = {}) {
   return true;
 }
 function showLayer(name) { $('overlay').classList.remove('hidden'); $(name).classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
-function hideLayers() { for (const id of ['overlay', 'cartDrawer', 'productModal', 'checkoutModal']) $(id).classList.add('hidden'); document.body.style.overflow = ''; }
+function hideLayers() { for (const id of ['overlay', 'cartDrawer', 'productModal', 'checkoutModal', 'trackingModal']) $(id).classList.add('hidden'); document.body.style.overflow = ''; }
 function syncPageTitle() { document.title = location.pathname === checkoutPath ? 'إتمام الطلب | عجيب للأحذية' : storePageTitle; }
 function closeLayers() {
   if (location.pathname === checkoutPath && !$('checkoutModal').classList.contains('hidden')) {
@@ -94,6 +94,23 @@ function renderCheckoutItems() {
     if (!cart.length) { closeLayers(); return; }
     renderCheckoutItems(); updateTotals();
   });
+}
+function openTracking() {
+  $('trackingError').classList.add('hidden'); $('trackingResult').classList.add('hidden');
+  showLayer('trackingModal'); requestAnimationFrame(() => $('trackingNumber').focus());
+}
+function renderTrackingResult(order) {
+  const stages = ['جديد', 'تم التأكيد', 'خرج للتوصيل', 'تم التوصيل'];
+  const step = Number(order.step || 0), cancelled = step === 0;
+  $('trackingResult').innerHTML = `<div class="tracking-result-title"><span>رقم الطلب</span><strong>#${esc(order.number)}</strong></div><div class="tracking-current ${cancelled ? 'cancelled' : ''}"><span>الحالة الحالية</span><b>${esc(order.status)}</b></div><div class="tracking-steps">${stages.map((label, index) => { const number = index + 1; return `<span class="tracking-step ${step >= number ? 'done' : ''} ${step === number ? 'current' : ''}">${label}</span>`; }).join('')}</div>`;
+  $('trackingResult').classList.remove('hidden');
+}
+async function trackOrder(e) {
+  e.preventDefault(); const button = e.currentTarget.querySelector('button[type=submit]');
+  button.disabled = true; $('trackingError').classList.add('hidden'); $('trackingResult').classList.add('hidden');
+  try { const form = new FormData(e.currentTarget); renderTrackingResult(await api('/api/order-status', { method: 'POST', body: JSON.stringify(Object.fromEntries(form.entries())) })); }
+  catch (err) { $('trackingError').textContent = err.message; $('trackingError').classList.remove('hidden'); }
+  finally { button.disabled = false; }
 }
 function showCheckout({ updateHistory = true } = {}) {
   if (!cart.length || cart.some(item => !findProduct(item.productId))) return; hideLayers();
@@ -183,7 +200,8 @@ $('search').oninput = e => { query = e.target.value.trim(); clearTimeout(searchT
 $('clearSizeFilter').onclick = () => { clearTimeout(searchTimer); activeSize = ''; loadCatalog(1, { scroll: true }); };
 $('clearFilters').onclick = () => { clearTimeout(searchTimer); activeSize = ''; query = ''; $('search').value = ''; loadCatalog(1, { scroll: true }); };
 $('openCart').onclick = async () => { renderCart(); showLayer('cartDrawer'); await hydrateCartProducts(); };
-$('closeCart').onclick = closeLayers; $('closeProduct').onclick = closeLayers; $('closeCheckout').onclick = closeLayers; $('overlay').onclick = closeLayers;
+$('openTracking').onclick = openTracking; $('trackingForm').onsubmit = trackOrder;
+$('closeCart').onclick = closeLayers; $('closeProduct').onclick = closeLayers; $('closeCheckout').onclick = closeLayers; $('closeTracking').onclick = closeLayers; $('overlay').onclick = closeLayers;
 $('checkoutBtn').onclick = showCheckout; $('city').onchange = updateTotals; $('checkoutForm').onsubmit = submitOrder;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLayers(); });
 window.addEventListener('popstate', () => {

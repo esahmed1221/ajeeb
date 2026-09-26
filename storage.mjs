@@ -255,6 +255,13 @@ async function findOrder(driver, id) {
   const result = await driver.query(`${orderSelect} WHERE o.id=$1`, [id]);
   return result.rows[0] ? mapOrder(result.rows[0]) : null;
 }
+async function findOrderForTracking(driver, number, phone) {
+  const phoneKey = customerPhoneKey(phone);
+  if (!phoneKey) return null;
+  const result = await driver.query(`SELECT o.number,o.status,o.created_at FROM orders o JOIN customers c ON c.id=o.customer_id WHERE o.number=$1 AND c.phone_key=$2 LIMIT 1`, [number, phoneKey]);
+  const row = result.rows[0];
+  return row ? { number: row.number, status: row.status, createdAt: new Date(row.created_at).toISOString() } : null;
+}
 async function listCustomers(driver) {
   const result = await driver.query(`
     SELECT c.*,count(o.id)::integer AS order_count,COALESCE(sum(CASE WHEN o.status NOT IN ('ملغي','راجع') THEN o.total ELSE 0 END),0) AS total_spent,max(o.created_at) AS last_order_at
@@ -299,6 +306,7 @@ export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
     saveProduct: product => driver.transaction(tx => insertProduct(tx, product)),
     listOrders: () => listOrders(driver),
     findOrder: id => findOrder(driver, id),
+    findOrderForTracking: (number, phone) => findOrderForTracking(driver, number, phone),
     listCustomers: () => listCustomers(driver),
     listStaff: () => listStaff(driver),
     findStaffById: id => findStaffById(driver, id),

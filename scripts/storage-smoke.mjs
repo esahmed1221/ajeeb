@@ -28,6 +28,8 @@ try {
   assert.equal(order.number, '5000');
   assert.equal(order.subtotal, 240);
   assert.equal(order.total, 250);
+  assert.equal((await storage.findOrderForTracking(order.number, '091 000 0000')).status, 'جديد');
+  assert.equal(await storage.findOrderForTracking(order.number, '0920000000'), null);
   assert.equal((await storage.findProduct(product.id)).sizes['42'], 1);
   assert.equal((await storage.listOrders()).length, 1);
   const firstCustomers = await storage.listCustomers();

@@ -32,9 +32,9 @@ async function waitForServer() {
 try {
   const storage = await createStorage({ dataDir: tempDir });
   await storage.saveSettings({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10 }, heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '' });
-  const product = { id: crypto.randomUUID(), code: 'ERP-TEST', name: 'منتج ERP', price: 90, oldPrice: 0, active: true, updatedAt: new Date().toISOString(), images: [], sizes: { 42: 2 } };
+  const product = { id: crypto.randomUUID(), code: 'API-TEST', name: 'منتج API', price: 90, oldPrice: 0, active: true, updatedAt: new Date().toISOString(), images: [], sizes: { 42: 2 } };
   await storage.saveProduct(product);
-  const order = await storage.createOrder({ id: crypto.randomUUID(), customer: { name: 'عميل ERP', phone: '0911111111', city: 'طرابلس', address: 'عنوان اختبار التكامل', notes: '' }, lines: [{ productId: product.id, size: '42', qty: 1 }], createdAt: new Date().toISOString() });
+  const order = await storage.createOrder({ id: crypto.randomUUID(), customer: { name: 'عميل API', phone: '0911111111', city: 'طرابلس', address: 'عنوان اختبار التكامل', notes: '' }, lines: [{ productId: product.id, size: '42', qty: 1 }], createdAt: new Date().toISOString() });
   await storage.close();
 
   server = spawn(process.execPath, ['server.mjs'], { cwd: root, env: { ...process.env, DATA_DIR: tempDir, HOST: '127.0.0.1', PORT: String(port), SITE_ORIGIN: origin, ADMIN_PASSWORD: 'integration-owner-password', ADMIN_PASSWORD_B64: '', SESSION_SECRET: 's'.repeat(64), TELEGRAM_BOT_TOKEN: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -45,7 +45,7 @@ try {
   const cookie = login.headers.get('set-cookie').split(';')[0];
 
   assert.equal((await fetch(`${origin}/api/v1/orders`)).status, 401);
-  const generated = await fetch(`${origin}/api/admin/integration-keys/erpnext`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: '{}' });
+  const generated = await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: '{}' });
   assert.equal(generated.status, 201);
   const first = await generated.json();
   assert.match(first.apiKey, /^ajeeb_live_[A-Za-z0-9_-]{12}_[A-Za-z0-9_-]{43}$/);
@@ -63,14 +63,14 @@ try {
   assert.equal(adminData.integrationApiKey.prefix, first.integrationApiKey.prefix);
   assert.equal(Object.hasOwn(adminData.integrationApiKey, 'apiKey'), false);
 
-  const rotatedResponse = await fetch(`${origin}/api/admin/integration-keys/erpnext`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: '{}' });
+  const rotatedResponse = await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: '{}' });
   assert.equal(rotatedResponse.status, 201);
   const rotated = await rotatedResponse.json();
   assert.notEqual(rotated.apiKey, first.apiKey);
   assert.equal((await fetch(`${origin}/api/v1/orders`, { headers: { authorization: `Bearer ${first.apiKey}` } })).status, 401);
   assert.equal((await fetch(`${origin}/api/v1/orders`, { headers: { authorization: `Bearer ${rotated.apiKey}` } })).status, 200);
 
-  const revoked = await fetch(`${origin}/api/admin/integration-keys/erpnext`, { method: 'DELETE', headers: { cookie, origin } });
+  const revoked = await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'DELETE', headers: { cookie, origin } });
   assert.equal(revoked.status, 200);
   assert.equal((await fetch(`${origin}/api/v1/orders`, { headers: { authorization: `Bearer ${rotated.apiKey}` } })).status, 401);
   console.log('Integration API smoke test passed');

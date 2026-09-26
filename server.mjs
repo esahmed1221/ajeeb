@@ -121,7 +121,7 @@ function createIntegrationApiKey() {
   const prefix = crypto.randomBytes(9).toString('base64url');
   const secret = crypto.randomBytes(32).toString('base64url');
   const token = `ajeeb_live_${prefix}_${secret}`;
-  return { token, record: { id: id(), provider: 'erpnext', label: 'ERPNext', prefix, hash: crypto.createHash('sha256').update(token).digest('hex'), scopes: ['orders.read'], createdAt: new Date().toISOString() } };
+  return { token, record: { id: id(), provider: 'orders', label: 'واجهة الطلبات', prefix, hash: crypto.createHash('sha256').update(token).digest('hex'), scopes: ['orders.read'], createdAt: new Date().toISOString() } };
 }
 async function authenticateIntegration(req) {
   const authorization = String(req.headers.authorization || '');
@@ -293,19 +293,19 @@ const server = http.createServer(async (req, res) => {
           can(person, 'orders.view') ? storage.listCustomers() : [],
           can(person, 'settings.view') ? storage.getSettings() : null,
           person.owner ? storage.listStaff() : [],
-          person.owner ? storage.getActiveIntegrationApiKey('erpnext') : null
+          person.owner ? storage.getActiveIntegrationApiKey('orders') : null
         ]);
         return send(res, 200, { user: person, liveVisitors: liveVisitorCount(), products, orders, customers, settings, telegramBotConfigured: Boolean(telegramBotToken), integrationApiKey: publicIntegrationApiKey(integrationApiKey), staff: staff.map(publicStaff) });
       }
-      if (pathname === '/api/admin/integration-keys/erpnext' && req.method === 'POST') {
+      if (pathname === '/api/admin/integration-keys/orders' && req.method === 'POST') {
         if (!person.owner) return fail(res, 403, 'توليد مفاتيح التكامل متاح للمالك فقط');
         const generated = createIntegrationApiKey();
         const saved = await storage.rotateIntegrationApiKey(generated.record);
         return send(res, 201, { apiKey: generated.token, integrationApiKey: publicIntegrationApiKey(saved) });
       }
-      if (pathname === '/api/admin/integration-keys/erpnext' && req.method === 'DELETE') {
+      if (pathname === '/api/admin/integration-keys/orders' && req.method === 'DELETE') {
         if (!person.owner) return fail(res, 403, 'إلغاء مفاتيح التكامل متاح للمالك فقط');
-        const revoked = await storage.revokeIntegrationApiKey('erpnext', new Date().toISOString());
+        const revoked = await storage.revokeIntegrationApiKey('orders', new Date().toISOString());
         return send(res, 200, { ok: true, revoked });
       }
       if (pathname === '/api/admin/staff' && req.method === 'POST') {

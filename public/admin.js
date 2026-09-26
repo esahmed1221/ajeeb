@@ -147,21 +147,21 @@ function renderDeliveryRows(delivery = {}) {
 }
 function renderIntegrationApiKey() {
   const owner = Boolean(db.user?.owner), key = db.integrationApiKey;
-  $('erpIntegrationBlock').classList.toggle('hidden', !owner);
+  $('apiIntegrationBlock').classList.toggle('hidden', !owner);
   if (!owner) return;
-  $('erpOrdersEndpoint').textContent = `${location.origin}/api/v1/orders?after=0&limit=100`;
-  $('erpIntegrationState').textContent = key ? 'مفعّل' : 'غير مفعّل';
-  $('erpIntegrationState').classList.toggle('active', Boolean(key));
-  $('erpIntegrationMeta').classList.toggle('hidden', !key);
-  $('revokeErpApiKey').classList.toggle('hidden', !key);
-  $('generateErpApiKey').textContent = key ? 'توليد مفتاح جديد' : 'توليد مفتاح API';
+  $('ordersApiEndpoint').textContent = `${location.origin}/api/v1/orders?after=0&limit=100`;
+  $('apiIntegrationState').textContent = key ? 'مفعّل' : 'غير مفعّل';
+  $('apiIntegrationState').classList.toggle('active', Boolean(key));
+  $('apiIntegrationMeta').classList.toggle('hidden', !key);
+  $('revokeApiKey').classList.toggle('hidden', !key);
+  $('generateApiKey').textContent = key ? 'توليد مفتاح جديد' : 'توليد مفتاح API';
   if (key) {
-    $('erpKeyPrefix').textContent = key.prefix;
-    $('erpKeyCreated').textContent = new Date(key.createdAt).toLocaleString('ar-LY');
-    $('erpKeyLastUsed').textContent = key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString('ar-LY') : 'لم يُستخدم بعد';
+    $('apiKeyPrefix').textContent = key.prefix;
+    $('apiKeyCreated').textContent = new Date(key.createdAt).toLocaleString('ar-LY');
+    $('apiKeyLastUsed').textContent = key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString('ar-LY') : 'لم يُستخدم بعد';
   }
-  $('erpIntegrationSecret').classList.add('hidden');
-  $('erpApiKey').value = '';
+  $('apiIntegrationSecret').classList.add('hidden');
+  $('generatedApiKey').value = '';
 }
 function renderSettings() {
   $('storePhone').value = db.settings.phone || ''; $('policyText').value = db.settings.exchangePolicy || ''; $('privacyText').value = db.settings.privacyPolicy || '';
@@ -175,35 +175,35 @@ function renderSettings() {
   $('heroImageFile').value = ''; $('heroMobileImageFile').value = '';
   renderIntegrationApiKey();
 }
-async function generateErpApiKey() {
+async function generateApiKey() {
   if (db.integrationApiKey && !confirm('توليد مفتاح جديد سيلغي المفتاح الحالي فورًا. هل تريد المتابعة؟')) return;
-  clearError('erpIntegrationError'); $('erpIntegrationNotice').classList.add('hidden');
-  $('generateErpApiKey').disabled = true; $('revokeErpApiKey').disabled = true;
+  clearError('apiIntegrationError'); $('apiIntegrationNotice').classList.add('hidden');
+  $('generateApiKey').disabled = true; $('revokeApiKey').disabled = true;
   try {
-    const result = await api('/api/admin/integration-keys/erpnext', { method: 'POST' });
+    const result = await api('/api/admin/integration-keys/orders', { method: 'POST' });
     db.integrationApiKey = result.integrationApiKey; renderIntegrationApiKey();
-    $('erpApiKey').value = result.apiKey; $('erpIntegrationSecret').classList.remove('hidden');
-    $('erpIntegrationNotice').textContent = 'تم إنشاء المفتاح. انسخه واحفظه داخل ERPNext الآن؛ لن يعرضه المتجر مرة ثانية.';
-    $('erpIntegrationNotice').classList.remove('hidden'); $('erpApiKey').focus(); $('erpApiKey').select();
-  } catch (err) { error('erpIntegrationError', err.message); }
-  finally { $('generateErpApiKey').disabled = false; $('revokeErpApiKey').disabled = false; }
+    $('generatedApiKey').value = result.apiKey; $('apiIntegrationSecret').classList.remove('hidden');
+    $('apiIntegrationNotice').textContent = 'تم إنشاء المفتاح. انسخه واحفظه في مكان آمن الآن؛ لن يعرضه المتجر مرة ثانية.';
+    $('apiIntegrationNotice').classList.remove('hidden'); $('generatedApiKey').focus(); $('generatedApiKey').select();
+  } catch (err) { error('apiIntegrationError', err.message); }
+  finally { $('generateApiKey').disabled = false; $('revokeApiKey').disabled = false; }
 }
-async function revokeErpApiKey() {
-  if (!db.integrationApiKey || !confirm('سيتم إيقاف اتصال ERPNext بهذا المفتاح فورًا. هل تريد إلغاءه؟')) return;
-  clearError('erpIntegrationError'); $('revokeErpApiKey').disabled = true;
+async function revokeApiKey() {
+  if (!db.integrationApiKey || !confirm('سيتم إيقاف وصول أي نظام خارجي بهذا المفتاح فورًا. هل تريد إلغاءه؟')) return;
+  clearError('apiIntegrationError'); $('revokeApiKey').disabled = true;
   try {
-    await api('/api/admin/integration-keys/erpnext', { method: 'DELETE' });
+    await api('/api/admin/integration-keys/orders', { method: 'DELETE' });
     db.integrationApiKey = null; renderIntegrationApiKey();
-    $('erpIntegrationNotice').textContent = 'تم إلغاء المفتاح، ولم يعد صالحًا للوصول إلى الطلبات.';
-    $('erpIntegrationNotice').classList.remove('hidden');
-  } catch (err) { error('erpIntegrationError', err.message); }
-  finally { $('revokeErpApiKey').disabled = false; }
+    $('apiIntegrationNotice').textContent = 'تم إلغاء المفتاح، ولم يعد صالحًا للوصول إلى الطلبات.';
+    $('apiIntegrationNotice').classList.remove('hidden');
+  } catch (err) { error('apiIntegrationError', err.message); }
+  finally { $('revokeApiKey').disabled = false; }
 }
-async function copyErpApiKey() {
-  const value = $('erpApiKey').value; if (!value) return;
+async function copyApiKey() {
+  const value = $('generatedApiKey').value; if (!value) return;
   try { await navigator.clipboard.writeText(value); }
-  catch { $('erpApiKey').focus(); $('erpApiKey').select(); document.execCommand('copy'); }
-  $('erpIntegrationNotice').textContent = 'تم نسخ المفتاح.'; $('erpIntegrationNotice').classList.remove('hidden');
+  catch { $('generatedApiKey').focus(); $('generatedApiKey').select(); document.execCommand('copy'); }
+  $('apiIntegrationNotice').textContent = 'تم نسخ المفتاح.'; $('apiIntegrationNotice').classList.remove('hidden');
 }
 function closeEditor() { $('editor').classList.add('hidden'); $('editorOverlay').classList.add('hidden'); document.body.style.overflow = ''; }
 function openEditor(p) {
@@ -294,9 +294,9 @@ $('newProduct').onclick = () => openEditor(); $('closeEditor').onclick = closeEd
 $('newStaff').onclick = () => openStaff(); $('closeStaff').onclick = closeStaff; $('staffOverlay').onclick = closeStaff; $('staffForm').onsubmit = saveStaff;
 $('settingsForm').onsubmit = saveSettings;
 $('addDelivery').onclick = () => addDeliveryRow();
-$('generateErpApiKey').onclick = generateErpApiKey;
-$('revokeErpApiKey').onclick = revokeErpApiKey;
-$('copyErpApiKey').onclick = copyErpApiKey;
+$('generateApiKey').onclick = generateApiKey;
+$('revokeApiKey').onclick = revokeApiKey;
+$('copyApiKey').onclick = copyApiKey;
 for (const [inputId, previewId] of [['heroImageFile', 'heroImagePreview'], ['heroMobileImageFile', 'heroMobileImagePreview']]) {
   $(inputId).onchange = () => {
     if (previewUrls[inputId]) URL.revokeObjectURL(previewUrls[inputId]);

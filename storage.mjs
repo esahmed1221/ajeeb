@@ -191,6 +191,15 @@ async function migrateIntegrationApiKeys(driver) {
   });
 }
 
+async function migrateGenericOrderApiKey(driver) {
+  const already = await driver.query('SELECT 1 FROM schema_migrations WHERE version=8');
+  if (already.rowCount) return;
+  await driver.transaction(async tx => {
+    await tx.query("UPDATE integration_api_keys SET provider='orders',label='واجهة الطلبات' WHERE provider<>'orders'");
+    await tx.query('INSERT INTO schema_migrations (version) VALUES (8)');
+  });
+}
+
 const productSelect = `
   SELECT p.*,
     COALESCE((SELECT jsonb_agg(pi.path ORDER BY pi.position) FROM product_images pi WHERE pi.product_id=p.id), '[]'::jsonb) AS images,
@@ -345,7 +354,7 @@ async function getSettings(driver) {
 export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
   fs.mkdirSync(dataDir, { recursive: true });
   const driver = await createDriver(databaseUrl, databaseConfig, path.join(dataDir, 'postgres'));
-  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver); await migrateOrderNumberFloor(driver); await migrateOrderItemImages(driver); await migrateIntegrationApiKeys(driver);
+  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver); await migrateOrderNumberFloor(driver); await migrateOrderItemImages(driver); await migrateIntegrationApiKeys(driver); await migrateGenericOrderApiKey(driver);
   return {
     kind: driver.kind,
     listProducts: ({ activeOnly = false } = {}) => listProducts(driver, activeOnly),

@@ -69,6 +69,8 @@ async function createSchema(driver) {
     INSERT INTO order_counter (id,last_number) SELECT 1,count(*) FROM orders ON CONFLICT (id) DO NOTHING;
     CREATE TABLE IF NOT EXISTS order_items (order_id uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE, product_id uuid NOT NULL, product_code varchar(40) NOT NULL, product_name varchar(120) NOT NULL, product_image text NOT NULL DEFAULT '', size smallint NOT NULL, quantity integer NOT NULL CHECK (quantity > 0), unit_price integer NOT NULL CHECK (unit_price >= 0), PRIMARY KEY (order_id, product_id, size));
     ALTER TABLE order_items ADD COLUMN IF NOT EXISTS product_image text NOT NULL DEFAULT '';
+    CREATE TABLE IF NOT EXISTS integration_api_keys (id uuid PRIMARY KEY, provider varchar(30) NOT NULL, label varchar(80) NOT NULL, key_prefix varchar(20) NOT NULL UNIQUE, key_hash char(64) NOT NULL UNIQUE, scopes jsonb NOT NULL DEFAULT '[]'::jsonb, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL, last_used_at timestamptz, revoked_at timestamptz);
+    CREATE UNIQUE INDEX IF NOT EXISTS integration_api_keys_active_provider_idx ON integration_api_keys (provider) WHERE active=true;
     CREATE INDEX IF NOT EXISTS customers_updated_at_idx ON customers (updated_at DESC);
     CREATE INDEX IF NOT EXISTS customers_name_idx ON customers (name);
     CREATE INDEX IF NOT EXISTS orders_customer_id_idx ON orders (customer_id);
@@ -179,6 +181,16 @@ async function migrateOrderItemImages(driver) {
   });
 }
 
+async function migrateIntegrationApiKeys(driver) {
+  const already = await driver.query('SELECT 1 FROM schema_migrations WHERE version=7');
+  if (already.rowCount) return;
+  await driver.transaction(async tx => {
+    await tx.query("CREATE TABLE IF NOT EXISTS integration_api_keys (id uuid PRIMARY KEY, provider varchar(30) NOT NULL, label varchar(80) NOT NULL, key_prefix varchar(20) NOT NULL UNIQUE, key_hash char(64) NOT NULL UNIQUE, scopes jsonb NOT NULL DEFAULT '[]'::jsonb, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL, last_used_at timestamptz, revoked_at timestamptz)");
+    await tx.query('CREATE UNIQUE INDEX IF NOT EXISTS integration_api_keys_active_provider_idx ON integration_api_keys (provider) WHERE active=true');
+    await tx.query('INSERT INTO schema_migrations (version) VALUES (7)');
+  });
+}
+
 const productSelect = `
   SELECT p.*,
     COALESCE((SELECT jsonb_agg(pi.path ORDER BY pi.position) FROM product_images pi WHERE pi.product_id=p.id), '[]'::jsonb) AS images,
@@ -205,6 +217,10 @@ function mapOrder(row) {
 }
 function mapCustomer(row) {
   return { id: row.id, name: row.name, phone: row.phone, city: row.city, address: row.address, orderCount: Number(row.order_count || 0), totalSpent: Number(row.total_spent || 0), lastOrderAt: row.last_order_at ? new Date(row.last_order_at).toISOString() : null, createdAt: new Date(row.created_at).toISOString(), updatedAt: new Date(row.updated_at).toISOString() };
+}
+function mapIntegrationApiKey(row, includeHash = false) {
+  if (!row) return null;
+  return { id: row.id, provider: row.provider, label: row.label, prefix: row.key_prefix, scopes: jsonValue(row.scopes, []), active: row.active, createdAt: new Date(row.created_at).toISOString(), lastUsedAt: row.last_used_at ? new Date(row.last_used_at).toISOString() : null, ...(includeHash ? { hash: row.key_hash } : {}) };
 }
 
 async function listProducts(driver, activeOnly = false) {
@@ -274,6 +290,34 @@ async function findOrderForTracking(driver, number, phone) {
   const result = await driver.query(`${orderSelect} JOIN customers c ON c.id=o.customer_id WHERE o.number=$1 AND c.phone_key=$2 LIMIT 1`, [number, phoneKey]);
   return result.rows[0] ? mapOrder(result.rows[0]) : null;
 }
+async function listOrdersForIntegration(driver, afterNumber, limit) {
+  const result = await driver.query(`${orderSelect} WHERE o.number ~ '^[0-9]+$' AND o.number::bigint>$1::bigint ORDER BY o.number::bigint,o.id LIMIT $2`, [afterNumber, limit + 1]);
+  const hasMore = result.rows.length > limit;
+  const orders = result.rows.slice(0, limit).map(mapOrder);
+  return { orders, hasMore, nextAfter: orders.at(-1)?.number || afterNumber };
+}
+async function getActiveIntegrationApiKey(driver, provider) {
+  const result = await driver.query('SELECT * FROM integration_api_keys WHERE provider=$1 AND active=true LIMIT 1', [provider]);
+  return mapIntegrationApiKey(result.rows[0]);
+}
+async function findIntegrationApiKeyByPrefix(driver, prefix) {
+  const result = await driver.query('SELECT * FROM integration_api_keys WHERE key_prefix=$1 AND active=true LIMIT 1', [prefix]);
+  return mapIntegrationApiKey(result.rows[0], true);
+}
+async function rotateIntegrationApiKey(driver, key) {
+  return driver.transaction(async tx => {
+    await tx.query('UPDATE integration_api_keys SET active=false,revoked_at=$2 WHERE provider=$1 AND active=true', [key.provider, key.createdAt]);
+    const result = await tx.query(`INSERT INTO integration_api_keys (id,provider,label,key_prefix,key_hash,scopes,active,created_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,true,$7) RETURNING *`, [key.id, key.provider, key.label, key.prefix, key.hash, JSON.stringify(key.scopes), key.createdAt]);
+    return mapIntegrationApiKey(result.rows[0]);
+  });
+}
+async function revokeIntegrationApiKey(driver, provider, revokedAt) {
+  const result = await driver.query('UPDATE integration_api_keys SET active=false,revoked_at=$2 WHERE provider=$1 AND active=true RETURNING id', [provider, revokedAt]);
+  return Boolean(result.rowCount);
+}
+async function touchIntegrationApiKey(driver, id, usedAt) {
+  await driver.query('UPDATE integration_api_keys SET last_used_at=$2 WHERE id=$1 AND active=true', [id, usedAt]);
+}
 async function listCustomers(driver) {
   const result = await driver.query(`
     SELECT c.*,count(o.id)::integer AS order_count,COALESCE(sum(CASE WHEN o.status NOT IN ('ملغي','راجع') THEN o.total ELSE 0 END),0) AS total_spent,max(o.created_at) AS last_order_at
@@ -301,7 +345,7 @@ async function getSettings(driver) {
 export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
   fs.mkdirSync(dataDir, { recursive: true });
   const driver = await createDriver(databaseUrl, databaseConfig, path.join(dataDir, 'postgres'));
-  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver); await migrateOrderNumberFloor(driver); await migrateOrderItemImages(driver);
+  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver); await migrateOrderNumberFloor(driver); await migrateOrderItemImages(driver); await migrateIntegrationApiKeys(driver);
   return {
     kind: driver.kind,
     listProducts: ({ activeOnly = false } = {}) => listProducts(driver, activeOnly),
@@ -319,6 +363,12 @@ export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
     listOrders: () => listOrders(driver),
     findOrder: id => findOrder(driver, id),
     findOrderForTracking: (number, phone) => findOrderForTracking(driver, number, phone),
+    listOrdersForIntegration: ({ afterNumber = '0', limit = 100 } = {}) => listOrdersForIntegration(driver, afterNumber, limit),
+    getActiveIntegrationApiKey: provider => getActiveIntegrationApiKey(driver, provider),
+    findIntegrationApiKeyByPrefix: prefix => findIntegrationApiKeyByPrefix(driver, prefix),
+    rotateIntegrationApiKey: key => rotateIntegrationApiKey(driver, key),
+    revokeIntegrationApiKey: (provider, revokedAt) => revokeIntegrationApiKey(driver, provider, revokedAt),
+    touchIntegrationApiKey: (id, usedAt) => touchIntegrationApiKey(driver, id, usedAt),
     listCustomers: () => listCustomers(driver),
     listStaff: () => listStaff(driver),
     findStaffById: id => findStaffById(driver, id),

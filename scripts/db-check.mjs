@@ -13,7 +13,7 @@ const database = external
   ? new pg.Pool({ ...(options.databaseUrl ? { connectionString: options.databaseUrl } : options.databaseConfig), ssl })
   : new PGlite(path.join(dataDir, 'postgres'));
 if (!external) await database.waitReady;
-const tables = ['products', 'inventory', 'customers', 'orders', 'order_items', 'staff', 'store_settings'];
+const tables = ['products', 'inventory', 'customers', 'orders', 'order_items', 'staff', 'store_settings', 'integration_api_keys'];
 for (const table of tables) {
   const result = await database.query(`SELECT count(*)::integer AS count FROM ${table}`);
   console.log(`${table}: ${result.rows[0].count}`);

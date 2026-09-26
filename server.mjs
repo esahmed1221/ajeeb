@@ -114,6 +114,39 @@ function publicTrackingStatus(status) {
     'راجع': { status: 'راجع', step: 0 }
   })[status] || { status: 'جديد', step: 1 };
 }
+function publicIntegrationApiKey(key) {
+  return key ? { provider: key.provider, label: key.label, prefix: `ajeeb_live_${key.prefix}_…`, scopes: key.scopes, createdAt: key.createdAt, lastUsedAt: key.lastUsedAt } : null;
+}
+function createIntegrationApiKey() {
+  const prefix = crypto.randomBytes(9).toString('base64url');
+  const secret = crypto.randomBytes(32).toString('base64url');
+  const token = `ajeeb_live_${prefix}_${secret}`;
+  return { token, record: { id: id(), provider: 'erpnext', label: 'ERPNext', prefix, hash: crypto.createHash('sha256').update(token).digest('hex'), scopes: ['orders.read'], createdAt: new Date().toISOString() } };
+}
+async function authenticateIntegration(req) {
+  const authorization = String(req.headers.authorization || '');
+  const match = /^Bearer\s+(ajeeb_live_([A-Za-z0-9_-]{12})_[A-Za-z0-9_-]{43})$/i.exec(authorization);
+  if (!match) return null;
+  const key = await storage.findIntegrationApiKeyByPrefix(match[2]);
+  if (!key?.hash) return null;
+  const actual = crypto.createHash('sha256').update(match[1]).digest();
+  const expected = Buffer.from(key.hash, 'hex');
+  if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return null;
+  await storage.touchIntegrationApiKey(key.id, new Date().toISOString());
+  return key;
+}
+function orderForIntegration(order) {
+  return {
+    id: order.id,
+    number: order.number,
+    status: order.status,
+    createdAt: order.createdAt,
+    currency: 'LYD',
+    customer: order.customer,
+    items: order.items.map(item => ({ productId: item.productId, code: item.code, name: item.name, image: item.image, size: item.size, quantity: item.qty, unitPrice: item.price, lineTotal: item.price * item.qty })),
+    totals: { subtotal: order.subtotal, delivery: order.delivery, total: order.total }
+  };
+}
 function validImagePath(value) { return value === '' || value === '/featured-banner.jpg' || /^\/uploads\/[a-f0-9-]+\.(png|jpg|webp)$/.test(value) || /^\/products\/[a-z0-9-]+\.(png|jpg|webp)$/.test(value); }
 async function notifyNewOrder(order) {
   try {
@@ -219,6 +252,16 @@ const server = http.createServer(async (req, res) => {
       void notifyNewOrder(order);
       return send(res, 201, { number: order.number, total: order.total });
     }
+    if (pathname === '/api/v1/orders' && req.method === 'GET') {
+      if (limited(req, 'integration-api', 1000, 3600000)) return fail(res, 429, 'Rate limit exceeded');
+      const integration = await authenticateIntegration(req);
+      if (!integration) return fail(res, 401, 'Invalid or missing API key');
+      if (!integration.scopes.includes('orders.read')) return fail(res, 403, 'API key does not have orders.read scope');
+      const after = clean(url.searchParams.get('after') || '0', 18), limit = positiveInt(url.searchParams.get('limit') || 100, 100);
+      if (!/^\d{1,18}$/.test(after) || !limit) return fail(res, 400, 'Invalid pagination parameters');
+      const page = await storage.listOrdersForIntegration({ afterNumber: BigInt(after).toString(), limit });
+      return send(res, 200, { object: 'list', data: page.orders.map(orderForIntegration), pagination: { after, nextAfter: page.nextAfter, hasMore: page.hasMore, limit } });
+    }
     if (pathname === '/api/admin/session' && req.method === 'GET') { const person = await auth(req); return send(res, 200, { loggedIn: Boolean(person), configured: adminConfigured, user: person }); }
     if (pathname === '/api/admin/login' && req.method === 'POST') {
       if (limited(req, 'login', 10, 900000)) return fail(res, 429, 'محاولات كثيرة. انتظر قليلًا.');
@@ -244,14 +287,26 @@ const server = http.createServer(async (req, res) => {
       if (!person) return fail(res, 401, 'سجّل الدخول أولًا');
       if (pathname === '/api/admin/live' && req.method === 'GET') return send(res, 200, { liveVisitors: liveVisitorCount() });
       if (pathname === '/api/admin/data' && req.method === 'GET') {
-        const [products, orders, customers, settings, staff] = await Promise.all([
+        const [products, orders, customers, settings, staff, integrationApiKey] = await Promise.all([
           can(person, 'products.view') ? storage.listProducts() : [],
           can(person, 'orders.view') ? storage.listOrders() : [],
           can(person, 'orders.view') ? storage.listCustomers() : [],
           can(person, 'settings.view') ? storage.getSettings() : null,
-          person.owner ? storage.listStaff() : []
+          person.owner ? storage.listStaff() : [],
+          person.owner ? storage.getActiveIntegrationApiKey('erpnext') : null
         ]);
-        return send(res, 200, { user: person, liveVisitors: liveVisitorCount(), products, orders, customers, settings, telegramBotConfigured: Boolean(telegramBotToken), staff: staff.map(publicStaff) });
+        return send(res, 200, { user: person, liveVisitors: liveVisitorCount(), products, orders, customers, settings, telegramBotConfigured: Boolean(telegramBotToken), integrationApiKey: publicIntegrationApiKey(integrationApiKey), staff: staff.map(publicStaff) });
+      }
+      if (pathname === '/api/admin/integration-keys/erpnext' && req.method === 'POST') {
+        if (!person.owner) return fail(res, 403, 'توليد مفاتيح التكامل متاح للمالك فقط');
+        const generated = createIntegrationApiKey();
+        const saved = await storage.rotateIntegrationApiKey(generated.record);
+        return send(res, 201, { apiKey: generated.token, integrationApiKey: publicIntegrationApiKey(saved) });
+      }
+      if (pathname === '/api/admin/integration-keys/erpnext' && req.method === 'DELETE') {
+        if (!person.owner) return fail(res, 403, 'إلغاء مفاتيح التكامل متاح للمالك فقط');
+        const revoked = await storage.revokeIntegrationApiKey('erpnext', new Date().toISOString());
+        return send(res, 200, { ok: true, revoked });
       }
       if (pathname === '/api/admin/staff' && req.method === 'POST') {
         if (!person.owner) return fail(res, 403, 'هذه العملية للمالك فقط');

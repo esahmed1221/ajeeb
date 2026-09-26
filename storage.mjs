@@ -258,9 +258,8 @@ async function findOrder(driver, id) {
 async function findOrderForTracking(driver, number, phone) {
   const phoneKey = customerPhoneKey(phone);
   if (!phoneKey) return null;
-  const result = await driver.query(`SELECT o.number,o.status,o.created_at FROM orders o JOIN customers c ON c.id=o.customer_id WHERE o.number=$1 AND c.phone_key=$2 LIMIT 1`, [number, phoneKey]);
-  const row = result.rows[0];
-  return row ? { number: row.number, status: row.status, createdAt: new Date(row.created_at).toISOString() } : null;
+  const result = await driver.query(`${orderSelect} JOIN customers c ON c.id=o.customer_id WHERE o.number=$1 AND c.phone_key=$2 LIMIT 1`, [number, phoneKey]);
+  return result.rows[0] ? mapOrder(result.rows[0]) : null;
 }
 async function listCustomers(driver) {
   const result = await driver.query(`

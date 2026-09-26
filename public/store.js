@@ -102,7 +102,10 @@ function openTracking() {
 function renderTrackingResult(order) {
   const stages = ['جديد', 'تم التأكيد', 'خرج للتوصيل', 'تم التوصيل'];
   const step = Number(order.step || 0), cancelled = step === 0;
-  $('trackingResult').innerHTML = `<div class="tracking-result-title"><span>رقم الطلب</span><strong>#${esc(order.number)}</strong></div><div class="tracking-current ${cancelled ? 'cancelled' : ''}"><span>الحالة الحالية</span><b>${esc(order.status)}</b></div><div class="tracking-steps">${stages.map((label, index) => { const number = index + 1; return `<span class="tracking-step ${step >= number ? 'done' : ''} ${step === number ? 'current' : ''}">${label}</span>`; }).join('')}</div>`;
+  const items = Array.isArray(order.items) ? order.items : [];
+  const itemCount = items.reduce((total, item) => total + Number(item.qty || 0), 0);
+  const products = items.length ? `<div class="tracking-products"><div class="tracking-products-title"><span>الأصناف داخل الطلب</span><strong>${itemCount} ${itemCount === 1 ? 'قطعة' : 'قطع'}</strong></div>${items.map(item => { const qty = Number(item.qty || 0), price = Number(item.price || 0); return `<div class="tracking-product"><span class="tracking-product-qty">${qty}×</span><div class="tracking-product-info"><b>${esc(item.name)}</b><small>${esc(item.code)} • المقاس ${esc(item.size)}</small></div><strong class="tracking-product-price">${money(price * qty)}</strong></div>`; }).join('')}</div>` : '';
+  $('trackingResult').innerHTML = `<div class="tracking-result-title"><span>رقم الطلب</span><strong>#${esc(order.number)}</strong></div><div class="tracking-current ${cancelled ? 'cancelled' : ''}"><span>الحالة الحالية</span><b>${esc(order.status)}</b></div>${products}<div class="tracking-steps">${stages.map((label, index) => { const number = index + 1; return `<span class="tracking-step ${step >= number ? 'done' : ''} ${step === number ? 'current' : ''}">${label}</span>`; }).join('')}</div>`;
   $('trackingResult').classList.remove('hidden');
 }
 async function trackOrder(e) {

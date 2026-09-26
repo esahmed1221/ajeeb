@@ -131,6 +131,82 @@
   color: #b3263d;
 }
 
+.tracking-products {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 13px;
+  padding: 11px;
+  border: 1px solid #d9ece9;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.tracking-products-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e8efef;
+  color: var(--navy);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.tracking-products-title strong {
+  color: var(--teal);
+  font-size: 10px;
+}
+
+.tracking-product {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 0;
+}
+
+.tracking-product + .tracking-product {
+  border-top: 1px solid #edf2f2;
+}
+
+.tracking-product-qty {
+  display: grid;
+  place-items: center;
+  min-height: 28px;
+  border-radius: 8px;
+  background: #e6f7f4;
+  color: var(--teal);
+  direction: ltr;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.tracking-product-info {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.tracking-product-info b {
+  overflow: hidden;
+  color: var(--navy);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.tracking-product-info small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.tracking-product-price {
+  color: var(--navy);
+  white-space: nowrap;
+  font-size: 11px;
+}
+
 .tracking-steps {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -189,5 +265,10 @@
 
   .tracking-steps {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .tracking-product {
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    gap: 7px;
   }
 }

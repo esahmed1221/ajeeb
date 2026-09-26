@@ -28,7 +28,14 @@ try {
   assert.equal(order.number, '5000');
   assert.equal(order.subtotal, 240);
   assert.equal(order.total, 250);
-  assert.equal((await storage.findOrderForTracking(order.number, '091 000 0000')).status, 'جديد');
+  const trackedOrder = await storage.findOrderForTracking(order.number, '091 000 0000');
+  assert.equal(trackedOrder.status, 'جديد');
+  assert.equal(trackedOrder.items.length, 1);
+  assert.equal(trackedOrder.items[0].code, product.code);
+  assert.equal(trackedOrder.items[0].name, product.name);
+  assert.equal(trackedOrder.items[0].size, '42');
+  assert.equal(trackedOrder.items[0].qty, 2);
+  assert.equal(trackedOrder.items[0].price, 120);
   assert.equal(await storage.findOrderForTracking(order.number, '0920000000'), null);
   assert.equal((await storage.findProduct(product.id)).sizes['42'], 1);
   assert.equal((await storage.listOrders()).length, 1);

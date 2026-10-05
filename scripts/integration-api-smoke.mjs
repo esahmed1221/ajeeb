@@ -31,7 +31,7 @@ async function waitForServer() {
 
 try {
   const storage = await createStorage({ dataDir: tempDir });
-  await storage.saveSettings({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10 }, heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '' });
+  await storage.saveSettings({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10 }, heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '', metaPixelId: '123456789012345' });
   const product = { id: crypto.randomUUID(), code: 'API-TEST', name: 'منتج API', price: 90, oldPrice: 0, active: true, updatedAt: new Date().toISOString(), images: [], sizes: { 42: 2 } };
   await storage.saveProduct(product);
   const order = await storage.createOrder({ id: crypto.randomUUID(), customer: { name: 'عميل API', phone: '0911111111', city: 'طرابلس', address: 'عنوان اختبار التكامل', notes: '' }, lines: [{ productId: product.id, size: '42', qty: 1 }], createdAt: new Date().toISOString() });
@@ -39,6 +39,13 @@ try {
 
   server = spawn(process.execPath, ['server.mjs'], { cwd: root, env: { ...process.env, DATA_DIR: tempDir, HOST: '127.0.0.1', PORT: String(port), SITE_ORIGIN: origin, ADMIN_PASSWORD: 'integration-owner-password', ADMIN_PASSWORD_B64: '', SESSION_SECRET: 's'.repeat(64), TELEGRAM_BOT_TOKEN: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   await waitForServer();
+
+  const storefront = await fetch(`${origin}/`);
+  assert.equal(storefront.status, 200);
+  assert.match(storefront.headers.get('content-security-policy') || '', /script-src[^;]*https:\/\/connect\.facebook\.net/);
+  assert.match(storefront.headers.get('content-security-policy') || '', /connect-src[^;]*https:\/\/www\.facebook\.com/);
+  const catalog = await fetch(`${origin}/api/catalog?page=1`).then(response => response.json());
+  assert.equal(catalog.settings.metaPixelId, '123456789012345');
 
   const login = await fetch(`${origin}/api/admin/login`, { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify({ username: '', password: 'integration-owner-password' }) });
   assert.equal(login.status, 200);

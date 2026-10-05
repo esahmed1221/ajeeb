@@ -179,7 +179,7 @@ function serveFile(res, file) {
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return fail(res, 404, 'غير موجود');
   const ext = path.extname(file).toLowerCase();
   if (!mime[ext]) return fail(res, 404, 'غير موجود');
-  send(res, 200, fs.readFileSync(file), { 'Content-Type': mime[ext], 'Cache-Control': ['.png', '.jpg', '.jpeg', '.webp', '.svg'].includes(ext) ? 'public, max-age=86400' : 'no-store', 'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'", 'X-Frame-Options': 'DENY' });
+  send(res, 200, fs.readFileSync(file), { 'Content-Type': mime[ext], 'Cache-Control': ['.png', '.jpg', '.jpeg', '.webp', '.svg'].includes(ext) ? 'public, max-age=86400' : 'no-store', 'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https://www.facebook.com; style-src 'self'; script-src 'self' https://connect.facebook.net; connect-src 'self' https://www.facebook.com https://connect.facebook.net; frame-ancestors 'none'", 'X-Frame-Options': 'DENY' });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -195,7 +195,7 @@ const server = http.createServer(async (req, res) => {
       const page = positiveInt(url.searchParams.get('page') || 1, 100000), query = clean(url.searchParams.get('q'), 80), size = clean(url.searchParams.get('size'), 2);
       if (!page || (size && (!/^\d{2}$/.test(size) || Number(size) < 20 || Number(size) > 50))) return fail(res, 400, 'صفحة أو مقاس غير صالح');
       const [catalog, settings, availableSizes] = await Promise.all([storage.listCatalogPage({ page, pageSize: 12, query, size }), storage.getSettings(), storage.listAvailableSizes()]);
-      return send(res, 200, { products: catalog.products.map(productForPublic), preview: process.env.DEMO_PREVIEW === '1' && catalog.totalItems === 0 && !query && !size, availableSizes, pagination: { page: catalog.page, pageSize: catalog.pageSize, totalItems: catalog.totalItems, totalPages: catalog.totalPages }, settings: { phone: settings.phone, exchangePolicy: settings.exchangePolicy, privacyPolicy: settings.privacyPolicy, delivery: settings.delivery, heroImage: settings.heroImage || '', heroMobileImage: settings.heroMobileImage || '', heroTitle: settings.heroTitle || '', heroSubtitle: settings.heroSubtitle || '' } });
+      return send(res, 200, { products: catalog.products.map(productForPublic), preview: process.env.DEMO_PREVIEW === '1' && catalog.totalItems === 0 && !query && !size, availableSizes, pagination: { page: catalog.page, pageSize: catalog.pageSize, totalItems: catalog.totalItems, totalPages: catalog.totalPages }, settings: { phone: settings.phone, exchangePolicy: settings.exchangePolicy, privacyPolicy: settings.privacyPolicy, delivery: settings.delivery, heroImage: settings.heroImage || '', heroMobileImage: settings.heroMobileImage || '', heroTitle: settings.heroTitle || '', heroSubtitle: settings.heroSubtitle || '', metaPixelId: settings.metaPixelId || '' } });
     }
     if (pathname === '/api/cart-products' && req.method === 'POST') {
       if (limited(req, 'cart-products', 240, 3600000)) return fail(res, 429, 'محاولات كثيرة');
@@ -392,7 +392,9 @@ const server = http.createServer(async (req, res) => {
         }
         const telegramChatId = clean(input.telegramChatId, 80);
         if (!validTelegramChatId(telegramChatId)) return fail(res, 400, 'وجهة تيليجرام غير صالحة. استخدم Chat ID رقميًا أو @username');
-        const updated = { phone: clean(input.phone, 50), exchangePolicy: clean(input.exchangePolicy, 3000), privacyPolicy: clean(input.privacyPolicy, 5000), delivery, heroImage, heroMobileImage, heroTitle: clean(input.heroTitle, 100), heroSubtitle: clean(input.heroSubtitle, 240), telegramChatId };
+        const metaPixelId = clean(input.metaPixelId, 30);
+        if (metaPixelId && !/^\d{5,30}$/.test(metaPixelId)) return fail(res, 400, 'معرّف Meta Pixel يجب أن يحتوي أرقامًا فقط');
+        const updated = { phone: clean(input.phone, 50), exchangePolicy: clean(input.exchangePolicy, 3000), privacyPolicy: clean(input.privacyPolicy, 5000), delivery, heroImage, heroMobileImage, heroTitle: clean(input.heroTitle, 100), heroSubtitle: clean(input.heroSubtitle, 240), telegramChatId, metaPixelId };
         await storage.saveSettings(updated); return send(res, 200, updated);
       }
     }

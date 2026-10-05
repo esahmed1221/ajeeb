@@ -1,3 +1,5 @@
+import { initMetaPixel, trackMetaEvent } from './meta-pixel.js';
+
 const $ = (id) => document.getElementById(id);
 const money = (n) => `${Number(n || 0).toLocaleString('ar-LY')} د.ل`;
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -6,8 +8,9 @@ const demo = [
   { id: 'demo2', code: 'SH 1989', name: 'حذاء كاجوال أبيض', price: 115, oldPrice: 190, sizes: { 37: 2, 38: 2, 39: 1, 40: 1 }, images: [], demo: true },
   { id: 'demo3', code: 'SH 1778', name: 'حذاء جري أسود', price: 145, oldPrice: 240, sizes: { 41: 1, 42: 2, 43: 1, 44: 1 }, images: [], demo: true }
 ];
-let products = [], availableSizes = [], settings = { delivery: {}, phone: '', exchangePolicy: '' }, cart = [], selectedSize = '', activeSize = '', query = '';
+let products = [], availableSizes = [], settings = { delivery: {}, phone: '', exchangePolicy: '', metaPixelId: '' }, cart = [], selectedSize = '', activeSize = '', query = '';
 let pagination = { page: 1, pageSize: 12, totalItems: 0, totalPages: 0 }, catalogRequest = 0, searchTimer;
+let checkoutEventSignature = '';
 const selectedCardSizes = new Map();
 const productCache = new Map();
 const checkoutPath = '/checkout', storePageTitle = document.title;
@@ -17,6 +20,11 @@ const rememberProducts = list => list.forEach(product => productCache.set(produc
 const findProduct = id => productCache.get(id);
 const available = p => Object.entries(p.sizes).filter(([, q]) => q > 0).map(([s]) => s);
 const photo = (p, cls = '') => p.images?.[0] ? `<img class="${cls}" src="${esc(p.images[0])}" alt="${esc(p.name)}">` : '<span class="placeholder" aria-hidden="true">عجيب</span>';
+const pixelProduct = (product, quantity = 1) => ({ content_ids: [product.code], contents: [{ id: product.code, quantity }], content_name: product.name, content_type: 'product', value: Number(product.price) * quantity, currency: 'LYD' });
+function pixelCart() {
+  const contents = cart.map(item => ({ product: findProduct(item.productId), quantity: Number(item.qty || 0) })).filter(item => item.product && item.quantity > 0);
+  return { content_ids: contents.map(item => item.product.code), contents: contents.map(item => ({ id: item.product.code, quantity: item.quantity })), content_type: 'product', value: contents.reduce((sum, item) => sum + Number(item.product.price) * item.quantity, 0), currency: 'LYD', num_items: contents.reduce((sum, item) => sum + item.quantity, 0) };
+}
 function filters() {
   $('sizeFilters').innerHTML = availableSizes.map(s => `<button data-size="${s}" class="${s === activeSize ? 'active' : ''}" aria-pressed="${s === activeSize}">${s}</button>`).join('');
   $('clearSizeFilter').classList.toggle('hidden', !activeSize);
@@ -52,6 +60,7 @@ function addToCart(p, size, { openCart = true } = {}) {
   if ((existing?.qty || 0) >= p.sizes[size]) { alert('الكمية المتوفرة لهذا المقاس وصلت للحد'); return false; }
   if (existing) existing.qty++; else cart.push({ productId: p.id, size, qty: 1 });
   saveCart(); closeLayers(); renderCart();
+  trackMetaEvent('AddToCart', pixelProduct(p));
   if (openCart) showLayer('cartDrawer');
   return true;
 }
@@ -68,6 +77,7 @@ function closeLayers() {
 }
 function showProduct(id) {
   const p = findProduct(id); if (!p) return; selectedSize = selectedCardSizes.get(id) || '';
+  trackMetaEvent('ViewContent', pixelProduct(p));
   $('productDetail').innerHTML = `<div class="detail-grid"><div><div class="detail-main-image" id="detailMain">${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="${esc(p.name)}">` : '<span aria-hidden="true">عجيب</span>'}</div><div class="thumbs">${(p.images || []).map((img, i) => `<button data-img="${i}" aria-label="الصورة ${i + 1}"><img src="${esc(img)}" alt=""></button>`).join('')}</div></div><div class="detail-info"><small>${esc(p.code)}</small><h2>${esc(p.name)}</h2><div><span class="price">${money(p.price)}</span>${p.oldPrice ? `<span class="old">${money(p.oldPrice)}</span>` : ''}</div><p>المقاسات المتوفرة:</p><div class="detail-sizes">${available(p).map(s => `<button class="size-pill" data-choice="${s}">${s}</button>`).join('')}</div><p>التوصيل داخل ليبيا • الدفع عند الاستلام</p><div class="detail-actions"><button id="addCart" class="button teal" ${p.demo || !selectedSize ? 'disabled' : ''}>${p.demo ? 'منتج للمعاينة فقط' : selectedSize ? 'إضافة إلى السلة' : 'اختار المقاس أولًا'}</button><button id="buyNow" class="button navy" ${p.demo || !selectedSize ? 'disabled' : ''}>شراء الآن — الدفع عند الاستلام</button></div></div></div>`;
   $('productDetail').querySelectorAll('[data-choice]').forEach(b => { b.classList.toggle('active', b.dataset.choice === selectedSize); b.onclick = () => { selectedSize = b.dataset.choice; selectedCardSizes.set(p.id, selectedSize); $('productDetail').querySelectorAll('[data-choice]').forEach(x => x.classList.toggle('active', x === b)); $('addCart').textContent = p.demo ? 'منتج للمعاينة فقط' : 'إضافة إلى السلة'; $('addCart').disabled = p.demo; $('buyNow').disabled = p.demo; }; });
   $('productDetail').querySelectorAll('[data-img]').forEach(b => b.onclick = () => { const img = p.images[Number(b.dataset.img)]; $('detailMain').innerHTML = `<img src="${esc(img)}" alt="${esc(p.name)}">`; });
@@ -82,7 +92,7 @@ function renderCart() {
   const sum = cart.reduce((n, x) => n + (findProduct(x.productId)?.price || 0) * x.qty, 0);
   $('cartSubtotal').textContent = money(sum);
   $('cartItems').innerHTML = cart.length ? cart.map((x, i) => { const p = findProduct(x.productId); if (!p) return '<p class="empty-cart">جاري تحميل بيانات المنتج...</p>'; return `<div class="cart-row"><div>${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="">` : '<span class="cart-placeholder">👟</span>'}</div><div><h3>${esc(p.name)}</h3><small>مقاس ${x.size} • ${money(p.price)}</small><div class="qty"><button data-action="minus" data-index="${i}" aria-label="تقليل الكمية">−</button><span>${x.qty}</span><button data-action="plus" data-index="${i}" aria-label="زيادة الكمية">+</button></div></div><button class="remove" data-action="remove" data-index="${i}" aria-label="حذف المنتج">حذف</button></div>`; }).join('') : '<p class="empty-cart">السلة فاضية توا.</p>';
-  $('cartItems').querySelectorAll('[data-action]').forEach(b => b.onclick = () => { const i = Number(b.dataset.index), x = cart[i], p = findProduct(x.productId); if (b.dataset.action === 'remove') cart.splice(i, 1); else if (b.dataset.action === 'minus') { x.qty--; if (!x.qty) cart.splice(i, 1); } else if (p && x.qty < p.sizes[x.size]) x.qty++; saveCart(); renderCart(); });
+  $('cartItems').querySelectorAll('[data-action]').forEach(b => b.onclick = () => { const i = Number(b.dataset.index), x = cart[i], p = findProduct(x.productId); if (b.dataset.action === 'remove') cart.splice(i, 1); else if (b.dataset.action === 'minus') { x.qty--; if (!x.qty) cart.splice(i, 1); } else if (p && x.qty < p.sizes[x.size]) { x.qty++; trackMetaEvent('AddToCart', pixelProduct(p)); } saveCart(); renderCart(); });
   $('checkoutBtn').disabled = !cart.length || unresolved;
 }
 function renderCheckoutItems() {
@@ -119,6 +129,8 @@ function showCheckout({ updateHistory = true } = {}) {
   if (!cart.length || cart.some(item => !findProduct(item.productId))) return; hideLayers();
   if (updateHistory && location.pathname !== checkoutPath) history.pushState({ ajeebCheckout: true }, '', checkoutPath);
   syncPageTitle();
+  const checkout = pixelCart(), signature = JSON.stringify(checkout.contents);
+  if (signature && signature !== checkoutEventSignature && trackMetaEvent('InitiateCheckout', checkout)) checkoutEventSignature = signature;
   const cities = Object.keys(settings.delivery || {}).sort((a, b) => a.localeCompare(b, 'ar'));
   $('city').innerHTML = `<option value="">اختر المدينة</option>${cities.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}`;
   $('orderError').classList.toggle('hidden', cities.length > 0);
@@ -129,6 +141,7 @@ function showCheckout({ updateHistory = true } = {}) {
 function updateTotals() { const sum = cart.reduce((n, x) => n + findProduct(x.productId).price * x.qty, 0); const fee = settings.delivery[$('city').value]; $('checkoutSubtotal').textContent = money(sum); $('deliveryFee').textContent = fee === undefined ? 'اختر المدينة' : money(fee); $('grandTotal').textContent = fee === undefined ? money(sum) : money(sum + fee); }
 async function api(url, options = {}) { const res = await fetch(url, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...options }); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'حدث خطأ'); return data; }
 function applySettings() {
+  initMetaPixel(settings.metaPixelId);
   const hero = settings.heroImage || settings.heroMobileImage;
   $('heroSection').classList.toggle('hidden', !hero);
   if (hero) {
@@ -188,7 +201,7 @@ function startPresence() {
 async function submitOrder(e) {
   e.preventDefault(); const button = e.currentTarget.querySelector('button[type=submit]'); button.disabled = true; $('orderError').classList.add('hidden');
   window.AjeebLoader?.show();
-  try { const form = new FormData(e.currentTarget), customer = Object.fromEntries(form.entries()); const result = await api('/api/order', { method: 'POST', body: JSON.stringify({ customer, items: cart }) }); cart = []; saveCart(); sessionStorage.setItem('ajeeb_last_order', JSON.stringify(result)); location.assign('/success.html'); } catch (err) { window.AjeebLoader?.hide(); $('orderError').textContent = err.message; $('orderError').classList.remove('hidden'); button.disabled = false; }
+  try { const form = new FormData(e.currentTarget), customer = Object.fromEntries(form.entries()), purchase = pixelCart(); const result = await api('/api/order', { method: 'POST', body: JSON.stringify({ customer, items: cart }) }); cart = []; saveCart(); sessionStorage.setItem('ajeeb_last_order', JSON.stringify({ ...result, metaPixelId: settings.metaPixelId || '', pixel: { ...purchase, value: Number(result.total) } })); location.assign('/success.html'); } catch (err) { window.AjeebLoader?.hide(); $('orderError').textContent = err.message; $('orderError').classList.remove('hidden'); button.disabled = false; }
 }
 async function init() {
   const loaded = await loadCatalog(1);

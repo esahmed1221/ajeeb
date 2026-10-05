@@ -7,7 +7,7 @@ const demo = [
   { id: 'demo3', code: 'SH 1778', name: 'حذاء جري أسود', price: 145, oldPrice: 240, sizes: { 41: 1, 42: 2, 43: 1, 44: 1 }, images: [], demo: true }
 ];
 let products = [], availableSizes = [], settings = { delivery: {}, phone: '', exchangePolicy: '' }, cart = [], selectedSize = '', activeSize = '', query = '';
-let pagination = { page: 1, pageSize: 15, totalItems: 0, totalPages: 0 }, catalogRequest = 0, searchTimer;
+let pagination = { page: 1, pageSize: 12, totalItems: 0, totalPages: 0 }, catalogRequest = 0, searchTimer;
 const selectedCardSizes = new Map();
 const productCache = new Map();
 const checkoutPath = '/checkout', storePageTitle = document.title;
@@ -153,7 +153,7 @@ async function loadCatalog(page = 1, { scroll = false } = {}) {
     if (request !== catalogRequest) return false;
     settings = data.settings; products = data.preview ? demo : data.products;
     availableSizes = data.preview ? [...new Set(demo.flatMap(available))].sort((a, b) => Number(a) - Number(b)) : (data.availableSizes || []);
-    pagination = data.preview ? { page: 1, pageSize: 15, totalItems: demo.length, totalPages: 1 } : data.pagination;
+    pagination = data.preview ? { page: 1, pageSize: 12, totalItems: demo.length, totalPages: 1 } : data.pagination;
     rememberProducts(products); applySettings();
     $('empty').textContent = query || activeSize ? 'ما فيش منتجات مطابقة. جرّب مقاس أو كلمة ثانية.' : 'المنتجات الجديدة تُضاف قريبًا.';
     render(); succeeded = true;

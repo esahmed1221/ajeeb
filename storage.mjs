@@ -248,7 +248,7 @@ function catalogConditions(query, size) {
   }
   return { where: conditions.join(' AND '), params };
 }
-async function listCatalogPage(driver, { page = 1, pageSize = 15, query = '', size = '' } = {}) {
+async function listCatalogPage(driver, { page = 1, pageSize = 12, query = '', size = '' } = {}) {
   const filter = catalogConditions(query, size);
   const countResult = await driver.query(`SELECT count(*)::integer AS total FROM products p WHERE ${filter.where}`, filter.params);
   const totalItems = Number(countResult.rows[0]?.total || 0);

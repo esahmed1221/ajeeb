@@ -194,7 +194,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/catalog' && req.method === 'GET') {
       const page = positiveInt(url.searchParams.get('page') || 1, 100000), query = clean(url.searchParams.get('q'), 80), size = clean(url.searchParams.get('size'), 2);
       if (!page || (size && (!/^\d{2}$/.test(size) || Number(size) < 20 || Number(size) > 50))) return fail(res, 400, 'صفحة أو مقاس غير صالح');
-      const [catalog, settings, availableSizes] = await Promise.all([storage.listCatalogPage({ page, pageSize: 15, query, size }), storage.getSettings(), storage.listAvailableSizes()]);
+      const [catalog, settings, availableSizes] = await Promise.all([storage.listCatalogPage({ page, pageSize: 12, query, size }), storage.getSettings(), storage.listAvailableSizes()]);
       return send(res, 200, { products: catalog.products.map(productForPublic), preview: process.env.DEMO_PREVIEW === '1' && catalog.totalItems === 0 && !query && !size, availableSizes, pagination: { page: catalog.page, pageSize: catalog.pageSize, totalItems: catalog.totalItems, totalPages: catalog.totalPages }, settings: { phone: settings.phone, exchangePolicy: settings.exchangePolicy, privacyPolicy: settings.privacyPolicy, delivery: settings.delivery, heroImage: settings.heroImage || '', heroMobileImage: settings.heroMobileImage || '', heroTitle: settings.heroTitle || '', heroSubtitle: settings.heroSubtitle || '' } });
     }
     if (pathname === '/api/cart-products' && req.method === 'POST') {

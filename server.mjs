@@ -172,6 +172,57 @@ function orderForIntegration(order) {
   };
 }
 function validImagePath(value) { return value === '' || value === '/featured-banner.jpg' || /^\/uploads\/[a-f0-9-]+\.(png|jpg|webp)$/.test(value) || /^\/products\/[a-z0-9-]+\.(png|jpg|webp)$/.test(value); }
+function publicOrigin(req) {
+  if (siteOrigin) {
+    try { return new URL(siteOrigin).origin; } catch {}
+  }
+  const forwardedProtocol = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProtocol === 'https' || req.socket.encrypted ? 'https' : 'http';
+  try { return new URL(`${protocol}://${req.headers.host || 'localhost'}`).origin; }
+  catch { return 'http://localhost'; }
+}
+function csvCell(value) {
+  return `"${String(value ?? '').replace(/\r\n|\r|\n/g, ' ').replace(/"/g, '""')}"`;
+}
+function sendMetaProductFeed(req, res, products) {
+  const origin = publicOrigin(req);
+  const header = ['id', 'title', 'description', 'availability', 'condition', 'price', 'link', 'image_link', 'brand', 'item_group_id', 'size'];
+  res.writeHead(200, {
+    'Content-Type': 'text/csv; charset=UTF-8',
+    'Content-Disposition': 'inline; filename="ajeeb-meta-products.csv"',
+    'Cache-Control': 'public, max-age=300, s-maxage=300, stale-while-revalidate=60',
+    'X-Content-Type-Options': 'nosniff'
+  });
+  if (req.method === 'HEAD') return res.end();
+  res.write(`${header.join(',')}\r\n`);
+  for (const product of products) {
+    const imagePath = (product.images || []).find(image => image && validImagePath(image));
+    if (!imagePath) continue;
+    const imageLink = new URL(imagePath, origin).href;
+    const sizes = Object.entries(product.sizes || {}).sort(([left], [right]) => Number(left) - Number(right));
+    for (const [size, rawStock] of sizes) {
+      if (!/^\d{2}$/.test(size)) continue;
+      const link = new URL('/', origin);
+      link.searchParams.set('product', product.id);
+      link.searchParams.set('size', size);
+      const row = [
+        `${product.code}-${size}`,
+        product.name,
+        product.name,
+        Number(rawStock) > 0 ? 'in stock' : 'out of stock',
+        'new',
+        `${product.price} LYD`,
+        link.href,
+        imageLink,
+        'Ajeeb',
+        product.code,
+        size
+      ];
+      res.write(`${row.map(csvCell).join(',')}\r\n`);
+    }
+  }
+  res.end();
+}
 async function notifyNewOrder(order) {
   try {
     const settings = await storage.getSettings();
@@ -215,6 +266,10 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
     if (req.method !== 'GET' && !allowedOrigin(req)) return fail(res, 403, 'طلب غير مسموح');
+    if (pathname === '/feeds/meta-products.csv' && ['GET', 'HEAD'].includes(req.method)) {
+      const products = await storage.listProducts({ activeOnly: true });
+      return sendMetaProductFeed(req, res, products);
+    }
     if (pathname === '/api/catalog' && req.method === 'GET') {
       const page = positiveInt(url.searchParams.get('page') || 1, 100000), query = clean(url.searchParams.get('q'), 80), size = clean(url.searchParams.get('size'), 2);
       if (!page || (size && (!/^\d{2}$/.test(size) || Number(size) < 20 || Number(size) > 50))) return fail(res, 400, 'صفحة أو مقاس غير صالح');

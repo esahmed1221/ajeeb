@@ -192,6 +192,22 @@ async function hydrateCartProducts() {
   } catch {}
   saveCart(); renderCart();
 }
+async function openLinkedProduct() {
+  if (location.pathname !== '/') return;
+  const params = new URLSearchParams(location.search), productId = params.get('product') || '', size = params.get('size') || '';
+  const validId = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+  if (!validId.test(productId)) return;
+  if (!findProduct(productId)) {
+    try {
+      const data = await api('/api/cart-products', { method: 'POST', body: JSON.stringify({ ids: [productId] }) });
+      rememberProducts(data.products || []);
+    } catch { return; }
+  }
+  const product = findProduct(productId);
+  if (!product) return;
+  if (/^\d{2}$/.test(size) && Number(product.sizes?.[size] || 0) > 0) selectedCardSizes.set(productId, size);
+  showProduct(productId);
+}
 function startPresence() {
   let visitor = localStorage.getItem('ajeeb_visitor');
   if (!visitor) { visitor = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`; localStorage.setItem('ajeeb_visitor', visitor); }
@@ -209,7 +225,7 @@ async function init() {
   if (location.pathname === checkoutPath) {
     if (cart.length && cart.every(item => findProduct(item.productId))) showCheckout({ updateHistory: false });
     else { history.replaceState(null, '', '/'); syncPageTitle(); }
-  } else syncPageTitle();
+  } else { syncPageTitle(); await openLinkedProduct(); }
   startPresence();
 }
 $('search').oninput = e => { query = e.target.value.trim(); clearTimeout(searchTimer); searchTimer = setTimeout(() => loadCatalog(1, { scroll: true }), 300); };

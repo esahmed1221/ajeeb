@@ -11,9 +11,11 @@ let db = { products: [], orders: [], customers: [], staff: [], settings: null, i
 let heroImages = { heroImage: '', heroMobileImage: '' };
 const previewUrls = {};
 let presenceTimer;
+let sensitiveAccessToken = '', sensitiveAccessExpiresAt = 0, sensitiveAccessTimer;
 
 async function api(url, options = {}) {
-  const res = await fetch(url, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...options });
+  const { headers: extraHeaders = {}, ...requestOptions } = options;
+  const res = await fetch(url, { credentials: 'same-origin', ...requestOptions, headers: { 'Content-Type': 'application/json', ...extraHeaders } });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || (res.status === 413 ? 'الصورة كبيرة جدًا. جرّب صورة أصغر.' : res.status === 401 ? 'انتهت جلسة الدخول. حدّث الصفحة وادخل من جديد.' : `تعذر الحفظ (${res.status}). حاول مرة أخرى.`));
   return data;
@@ -21,6 +23,37 @@ async function api(url, options = {}) {
 function error(id, message) { $(id).textContent = message; $(id).classList.remove('hidden'); }
 function clearError(id) { $(id).classList.add('hidden'); }
 function can(permission) { return db.user?.owner || db.user?.permissions?.includes(permission) || (permission.endsWith('.view') && db.user?.permissions?.includes(permission.replace('.view', '.manage'))); }
+function sensitiveAccessIsValid() { return Boolean(sensitiveAccessToken) && sensitiveAccessExpiresAt > Date.now(); }
+function sensitiveHeaders() { return sensitiveAccessIsValid() ? { 'X-Ajeeb-Sensitive-Access': sensitiveAccessToken } : {}; }
+function lockSensitiveSettings() {
+  sensitiveAccessToken = ''; sensitiveAccessExpiresAt = 0;
+  if (sensitiveAccessTimer) clearTimeout(sensitiveAccessTimer);
+  sensitiveAccessTimer = undefined;
+  if (db.settings) $('metaPixelId').value = db.settings.metaPixelId || '';
+  renderSensitiveAccess();
+}
+function setSensitiveAccess(token, expiresAt) {
+  sensitiveAccessToken = token; sensitiveAccessExpiresAt = Number(expiresAt) || 0;
+  if (sensitiveAccessTimer) clearTimeout(sensitiveAccessTimer);
+  sensitiveAccessTimer = setTimeout(lockSensitiveSettings, Math.max(0, sensitiveAccessExpiresAt - Date.now()));
+  renderSensitiveAccess();
+}
+function renderSensitiveAccess() {
+  const owner = Boolean(db.user?.owner), unlocked = owner && sensitiveAccessIsValid();
+  $('metaPixelBlock').classList.toggle('is-locked', !unlocked);
+  $('apiIntegrationBlock').classList.toggle('is-locked', !unlocked);
+  $('metaPixelId').readOnly = !unlocked;
+  $('metaPixelId').disabled = !can('settings.manage');
+  $('editSensitiveSettings').classList.toggle('hidden', !owner);
+  $('editSensitiveSettings').textContent = unlocked ? 'إغلاق التعديل' : 'تعديل';
+  $('sensitiveSettingsState').textContent = unlocked ? 'مفتوح للتعديل مؤقتًا' : owner ? 'للقراءة فقط — أدخل رمز الإدارة للتعديل' : 'للقراءة فقط — التعديل متاح للمالك';
+  $('sensitiveSettingsState').classList.toggle('unlocked', unlocked);
+  $('apiProtectionState').textContent = unlocked ? 'مفتوح مؤقتًا' : 'للقراءة فقط';
+  $('apiProtectionState').classList.toggle('unlocked', unlocked);
+  $('generateApiKey').disabled = !unlocked;
+  $('revokeApiKey').disabled = !unlocked;
+  $('saveSensitiveSettings').classList.toggle('hidden', !unlocked);
+}
 function showTab(id) {
   document.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('active', x.dataset.tab === id));
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('hidden', x.id !== id));
@@ -175,13 +208,35 @@ function renderSettings() {
   $('removeHeroImage').disabled = !heroImages.heroImage; $('removeHeroMobileImage').disabled = !heroImages.heroMobileImage;
   $('heroImageFile').value = ''; $('heroMobileImageFile').value = '';
   renderIntegrationApiKey();
+  renderSensitiveAccess();
+}
+function openSensitiveUnlock() {
+  if (!db.user?.owner) return;
+  $('sensitiveUnlockForm').reset(); clearError('sensitiveUnlockError');
+  $('sensitiveUnlockModal').classList.remove('hidden'); $('sensitiveUnlockOverlay').classList.remove('hidden');
+  document.body.style.overflow = 'hidden'; $('sensitiveAdminPassword').focus();
+}
+function closeSensitiveUnlock() {
+  $('sensitiveUnlockModal').classList.add('hidden'); $('sensitiveUnlockOverlay').classList.add('hidden');
+  $('sensitiveAdminPassword').value = ''; document.body.style.overflow = '';
+}
+async function unlockSensitiveSettings(e) {
+  e.preventDefault(); clearError('sensitiveUnlockError');
+  const button = e.currentTarget.querySelector('button[type=submit]'); button.disabled = true;
+  try {
+    const result = await api('/api/admin/sensitive-access', { method: 'POST', body: JSON.stringify({ password: $('sensitiveAdminPassword').value }) });
+    setSensitiveAccess(result.token, result.expiresAt); closeSensitiveUnlock();
+    $('metaPixelId').focus();
+  } catch (err) { error('sensitiveUnlockError', err.message); }
+  finally { button.disabled = false; }
 }
 async function generateApiKey() {
+  if (!sensitiveAccessIsValid()) return openSensitiveUnlock();
   if (db.integrationApiKey && !confirm('توليد مفتاح جديد سيلغي المفتاح الحالي فورًا. هل تريد المتابعة؟')) return;
   clearError('apiIntegrationError'); $('apiIntegrationNotice').classList.add('hidden');
   $('generateApiKey').disabled = true; $('revokeApiKey').disabled = true;
   try {
-    const result = await api('/api/admin/integration-keys/orders', { method: 'POST' });
+    const result = await api('/api/admin/integration-keys/orders', { method: 'POST', headers: sensitiveHeaders() });
     db.integrationApiKey = result.integrationApiKey; renderIntegrationApiKey();
     $('generatedApiKey').value = result.apiKey; $('apiIntegrationSecret').classList.remove('hidden');
     $('apiIntegrationNotice').textContent = 'تم إنشاء المفتاح. انسخه واحفظه في مكان آمن الآن؛ لن يعرضه المتجر مرة ثانية.';
@@ -190,10 +245,11 @@ async function generateApiKey() {
   finally { $('generateApiKey').disabled = false; $('revokeApiKey').disabled = false; }
 }
 async function revokeApiKey() {
+  if (!sensitiveAccessIsValid()) return openSensitiveUnlock();
   if (!db.integrationApiKey || !confirm('سيتم إيقاف وصول أي نظام خارجي بهذا المفتاح فورًا. هل تريد إلغاءه؟')) return;
   clearError('apiIntegrationError'); $('revokeApiKey').disabled = true;
   try {
-    await api('/api/admin/integration-keys/orders', { method: 'DELETE' });
+    await api('/api/admin/integration-keys/orders', { method: 'DELETE', headers: sensitiveHeaders() });
     db.integrationApiKey = null; renderIntegrationApiKey();
     $('apiIntegrationNotice').textContent = 'تم إلغاء المفتاح، ولم يعد صالحًا للوصول إلى الطلبات.';
     $('apiIntegrationNotice').classList.remove('hidden');
@@ -262,8 +318,10 @@ async function saveStaff(e) {
   } catch (err) { error('staffError', err.message); } finally { button.disabled = false; }
 }
 async function saveSettings(e) {
-  e.preventDefault(); clearError('settingsError'); const button = e.currentTarget.querySelector('button[type=submit]'); button.disabled = true;
+  e.preventDefault(); clearError('settingsError'); const button = e.submitter || e.currentTarget.querySelector('button[type=submit]'); button.disabled = true;
   try {
+    const metaPixelChanged = $('metaPixelId').value.trim() !== String(db.settings.metaPixelId || '');
+    if (metaPixelChanged && !sensitiveAccessIsValid()) { openSensitiveUnlock(); throw new Error('أدخل رمز الإدارة ثم اضغط حفظ مرة أخرى'); }
     const delivery = {};
     for (const row of $('deliveryRows').querySelectorAll('.delivery-row')) {
       const city = row.querySelector('[data-delivery-city]').value.trim(), feeText = row.querySelector('[data-delivery-fee]').value.trim();
@@ -278,7 +336,7 @@ async function saveSettings(e) {
       heroImages[setting] = await uploadImage(file, 'homepage');
     }
     $('settingsNotice').textContent = 'جاري حفظ الإعدادات...'; $('settingsNotice').classList.remove('hidden');
-    await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({ phone: $('storePhone').value, exchangePolicy: $('policyText').value, privacyPolicy: $('privacyText').value, delivery, ...heroImages, heroTitle: $('heroTitle').value, heroSubtitle: $('heroSubtitle').value, telegramChatId: $('telegramChatId').value, metaPixelId: $('metaPixelId').value }) });
+    await api('/api/admin/settings', { method: 'PUT', headers: sensitiveHeaders(), body: JSON.stringify({ phone: $('storePhone').value, exchangePolicy: $('policyText').value, privacyPolicy: $('privacyText').value, delivery, ...heroImages, heroTitle: $('heroTitle').value, heroSubtitle: $('heroSubtitle').value, telegramChatId: $('telegramChatId').value, metaPixelId: $('metaPixelId').value }) });
     await load(); $('settingsNotice').textContent = 'تم حفظ الإعدادات بنجاح.'; $('settingsNotice').classList.remove('hidden');
   } catch (err) { error('settingsError', err.message); $('settingsNotice').classList.add('hidden'); } finally { button.disabled = false; }
 }
@@ -294,6 +352,8 @@ $('todayDay').onclick = () => { $('overviewDate').value = localDay(new Date().to
 $('newProduct').onclick = () => openEditor(); $('closeEditor').onclick = closeEditor; $('editorOverlay').onclick = closeEditor; $('productForm').onsubmit = saveProduct;
 $('newStaff').onclick = () => openStaff(); $('closeStaff').onclick = closeStaff; $('staffOverlay').onclick = closeStaff; $('staffForm').onsubmit = saveStaff;
 $('settingsForm').onsubmit = saveSettings;
+$('editSensitiveSettings').onclick = () => sensitiveAccessIsValid() ? lockSensitiveSettings() : openSensitiveUnlock();
+$('closeSensitiveUnlock').onclick = closeSensitiveUnlock; $('sensitiveUnlockOverlay').onclick = closeSensitiveUnlock; $('sensitiveUnlockForm').onsubmit = unlockSensitiveSettings;
 $('addDelivery').onclick = () => addDeliveryRow();
 $('generateApiKey').onclick = generateApiKey;
 $('revokeApiKey').onclick = revokeApiKey;
@@ -311,5 +371,5 @@ for (const [buttonId, inputId, previewId, setting] of [['removeHeroImage', 'hero
 ['orderSearch', 'statusFilter', 'dateFrom', 'dateTo'].forEach(id => $(id).oninput = renderOrders);
 $('clearFilters').onclick = () => { ['orderSearch', 'statusFilter', 'dateFrom', 'dateTo'].forEach(id => $(id).value = ''); renderOrders(); };
 $('customerSearch').oninput = renderCustomers; $('customerSort').onchange = renderCustomers;
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeEditor(); closeStaff(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeEditor(); closeStaff(); closeSensitiveUnlock(); } });
 api('/api/admin/session').then(s => { if (s.loggedIn) load(); else if (!s.configured) error('loginError', 'كلمة مرور الإدارة لم تُجهّز على السيرفر بعد.'); }).catch(() => error('loginError', 'تعذر الاتصال بالسيرفر.'));

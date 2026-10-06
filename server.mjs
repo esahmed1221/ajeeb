@@ -25,6 +25,7 @@ const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=u
 const noCache = { 'Cache-Control': 'no-store' };
 const permissions = ['orders.view', 'orders.manage', 'products.view', 'products.manage', 'settings.view', 'settings.manage'];
 const owner = { id: 'owner', name: 'المالك', username: 'owner', owner: true, permissions, sessionVersion: crypto.createHash('sha256').update(adminPassword).digest('hex').slice(0, 16) };
+const sensitiveAccessLifetime = 5 * 60_000;
 
 function send(res, status, body, headers = {}) {
   const payload = typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body);
@@ -55,6 +56,29 @@ async function auth(req) {
 function session(person) {
   const payload = Buffer.from(JSON.stringify({ id: person.id, version: person.sessionVersion || 0, exp: Date.now() + 12 * 3600000, nonce: crypto.randomBytes(12).toString('hex') })).toString('base64url');
   return `${payload}.${crypto.createHmac('sha256', sessionSecret).update(payload).digest('hex')}`;
+}
+function ownerPasswordMatches(value) {
+  const supplied = crypto.createHash('sha256').update(String(value || '')).digest();
+  const expected = crypto.createHash('sha256').update(adminPassword).digest();
+  return crypto.timingSafeEqual(supplied, expected);
+}
+function sensitiveAccessToken() {
+  const expiresAt = Date.now() + sensitiveAccessLifetime;
+  const payload = Buffer.from(JSON.stringify({ id: owner.id, version: owner.sessionVersion, purpose: 'sensitive-settings', exp: expiresAt, nonce: crypto.randomBytes(12).toString('hex') })).toString('base64url');
+  const signature = crypto.createHmac('sha256', sessionSecret).update(`sensitive:${payload}`).digest('hex');
+  return { token: `${payload}.${signature}`, expiresAt };
+}
+function hasSensitiveAccess(req, person) {
+  if (!person?.owner) return false;
+  const token = String(req.headers['x-ajeeb-sensitive-access'] || '');
+  const [payload, signature] = token.split('.');
+  if (!payload || !signature || !/^[A-Za-z0-9_-]+$/.test(payload)) return false;
+  const expected = crypto.createHmac('sha256', sessionSecret).update(`sensitive:${payload}`).digest('hex');
+  if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return false;
+  try {
+    const value = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return value.id === owner.id && value.version === owner.sessionVersion && value.purpose === 'sensitive-settings' && Number(value.exp) >= Date.now();
+  } catch { return false; }
 }
 function can(person, permission) { return person?.owner || person?.permissions?.includes(permission) || (permission.endsWith('.view') && person?.permissions?.includes(permission.replace('.view', '.manage'))); }
 function publicStaff(x) { return { id: x.id, name: x.name, username: x.username, active: x.active, permissions: x.permissions, createdAt: x.createdAt, updatedAt: x.updatedAt }; }
@@ -269,8 +293,7 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req, 2000); const supplied = String(input.password || ''); const username = clean(input.username, 32).toLowerCase();
       let person;
       if (!username || username === 'owner') {
-        const a = crypto.createHash('sha256').update(supplied).digest(); const b = crypto.createHash('sha256').update(adminPassword).digest();
-        if (crypto.timingSafeEqual(a, b)) person = owner;
+        if (ownerPasswordMatches(supplied)) person = owner;
       } else {
         const staff = await storage.findStaffByUsername(username);
         const activeStaff = staff?.active ? staff : null;
@@ -297,14 +320,23 @@ const server = http.createServer(async (req, res) => {
         ]);
         return send(res, 200, { user: person, liveVisitors: liveVisitorCount(), products, orders, customers, settings, telegramBotConfigured: Boolean(telegramBotToken), integrationApiKey: publicIntegrationApiKey(integrationApiKey), staff: staff.map(publicStaff) });
       }
+      if (pathname === '/api/admin/sensitive-access' && req.method === 'POST') {
+        if (!person.owner) return fail(res, 403, 'فتح إعدادات API وMeta Pixel متاح للمالك فقط');
+        if (limited(req, 'sensitive-access', 8, 15 * 60_000)) return fail(res, 429, 'محاولات كثيرة. انتظر قليلًا.');
+        const input = await body(req, 2000);
+        if (!ownerPasswordMatches(input.password)) return fail(res, 401, 'رمز الإدارة غير صحيح');
+        return send(res, 200, sensitiveAccessToken());
+      }
       if (pathname === '/api/admin/integration-keys/orders' && req.method === 'POST') {
         if (!person.owner) return fail(res, 403, 'توليد مفاتيح التكامل متاح للمالك فقط');
+        if (!hasSensitiveAccess(req, person)) return fail(res, 403, 'أدخل رمز الإدارة من زر «تعديل» أولًا');
         const generated = createIntegrationApiKey();
         const saved = await storage.rotateIntegrationApiKey(generated.record);
         return send(res, 201, { apiKey: generated.token, integrationApiKey: publicIntegrationApiKey(saved) });
       }
       if (pathname === '/api/admin/integration-keys/orders' && req.method === 'DELETE') {
         if (!person.owner) return fail(res, 403, 'إلغاء مفاتيح التكامل متاح للمالك فقط');
+        if (!hasSensitiveAccess(req, person)) return fail(res, 403, 'أدخل رمز الإدارة من زر «تعديل» أولًا');
         const revoked = await storage.revokeIntegrationApiKey('orders', new Date().toISOString());
         return send(res, 200, { ok: true, revoked });
       }
@@ -394,6 +426,8 @@ const server = http.createServer(async (req, res) => {
         if (!validTelegramChatId(telegramChatId)) return fail(res, 400, 'وجهة تيليجرام غير صالحة. استخدم Chat ID رقميًا أو @username');
         const metaPixelId = clean(input.metaPixelId, 30);
         if (metaPixelId && !/^\d{5,30}$/.test(metaPixelId)) return fail(res, 400, 'معرّف Meta Pixel يجب أن يحتوي أرقامًا فقط');
+        const currentSettings = await storage.getSettings();
+        if (metaPixelId !== currentSettings.metaPixelId && !hasSensitiveAccess(req, person)) return fail(res, 403, 'أدخل رمز الإدارة من زر «تعديل» لتغيير Meta Pixel');
         const updated = { phone: clean(input.phone, 50), exchangePolicy: clean(input.exchangePolicy, 3000), privacyPolicy: clean(input.privacyPolicy, 5000), delivery, heroImage, heroMobileImage, heroTitle: clean(input.heroTitle, 100), heroSubtitle: clean(input.heroSubtitle, 240), telegramChatId, metaPixelId };
         await storage.saveSettings(updated); return send(res, 200, updated);
       }

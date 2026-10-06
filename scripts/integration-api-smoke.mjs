@@ -52,7 +52,20 @@ try {
   const cookie = login.headers.get('set-cookie').split(';')[0];
 
   assert.equal((await fetch(`${origin}/api/v1/orders`)).status, 401);
-  const generated = await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: '{}' });
+  assert.equal((await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: '{}' })).status, 403);
+  assert.equal((await fetch(`${origin}/api/admin/sensitive-access`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: JSON.stringify({ password: 'wrong-owner-password' }) })).status, 401);
+  const sensitiveResponse = await fetch(`${origin}/api/admin/sensitive-access`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: JSON.stringify({ password: 'integration-owner-password' }) });
+  assert.equal(sensitiveResponse.status, 200);
+  const sensitive = await sensitiveResponse.json();
+  assert.match(sensitive.token, /^[A-Za-z0-9_-]+\.[a-f0-9]{64}$/);
+  assert.ok(sensitive.expiresAt > Date.now());
+  const protectedHeaders = { cookie, origin, 'content-type': 'application/json', 'x-ajeeb-sensitive-access': sensitive.token };
+
+  const changedSettings = { phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10 }, heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '', metaPixelId: '987654321098765' };
+  assert.equal((await fetch(`${origin}/api/admin/settings`, { method: 'PUT', headers: { cookie, origin, 'content-type': 'application/json' }, body: JSON.stringify(changedSettings) })).status, 403);
+  assert.equal((await fetch(`${origin}/api/admin/settings`, { method: 'PUT', headers: protectedHeaders, body: JSON.stringify(changedSettings) })).status, 200);
+
+  const generated = await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'POST', headers: protectedHeaders, body: '{}' });
   assert.equal(generated.status, 201);
   const first = await generated.json();
   assert.match(first.apiKey, /^ajeeb_live_[A-Za-z0-9_-]{12}_[A-Za-z0-9_-]{43}$/);
@@ -70,14 +83,14 @@ try {
   assert.equal(adminData.integrationApiKey.prefix, first.integrationApiKey.prefix);
   assert.equal(Object.hasOwn(adminData.integrationApiKey, 'apiKey'), false);
 
-  const rotatedResponse = await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: '{}' });
+  const rotatedResponse = await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'POST', headers: protectedHeaders, body: '{}' });
   assert.equal(rotatedResponse.status, 201);
   const rotated = await rotatedResponse.json();
   assert.notEqual(rotated.apiKey, first.apiKey);
   assert.equal((await fetch(`${origin}/api/v1/orders`, { headers: { authorization: `Bearer ${first.apiKey}` } })).status, 401);
   assert.equal((await fetch(`${origin}/api/v1/orders`, { headers: { authorization: `Bearer ${rotated.apiKey}` } })).status, 200);
 
-  const revoked = await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'DELETE', headers: { cookie, origin } });
+  const revoked = await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'DELETE', headers: protectedHeaders });
   assert.equal(revoked.status, 200);
   assert.equal((await fetch(`${origin}/api/v1/orders`, { headers: { authorization: `Bearer ${rotated.apiKey}` } })).status, 401);
   console.log('Integration API smoke test passed');

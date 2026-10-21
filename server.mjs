@@ -415,6 +415,16 @@ const server = http.createServer(async (req, res) => {
         catch (error) { if (error.code === '23505') return fail(res, 400, 'اسم المستخدم مستخدم'); throw error; }
         return send(res, 200, publicStaff(updated));
       }
+      if (pathname === '/api/admin/products/order' && req.method === 'PUT') {
+        if (!can(person, 'products.manage')) return fail(res, 403, 'ليس لديك صلاحية ترتيب المنتجات');
+        const input = await body(req, 500000);
+        if (!Array.isArray(input.ids) || input.ids.length > 10000) return fail(res, 400, 'ترتيب المنتجات غير صالح');
+        const ids = input.ids.map(value => clean(value, 36));
+        if (ids.some(value => !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value)) || new Set(ids).size !== ids.length) return fail(res, 400, 'ترتيب المنتجات غير صالح');
+        try { await storage.reorderProducts(ids); }
+        catch (error) { if (error.code === 'INVALID_PRODUCT_ORDER') return fail(res, 409, 'تغيّرت قائمة المنتجات. حدّث الصفحة وحاول من جديد'); throw error; }
+        return send(res, 200, { ok: true, count: ids.length });
+      }
       if (pathname === '/api/admin/products' && req.method === 'POST') {
         if (!can(person, 'products.manage')) return fail(res, 403, 'ليس لديك صلاحية تعديل المنتجات');
         const input = await body(req, 100000); let p;

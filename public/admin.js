@@ -12,6 +12,7 @@ let heroImages = { heroImage: '', heroMobileImage: '' };
 const previewUrls = {};
 let presenceTimer;
 let sensitiveAccessToken = '', sensitiveAccessExpiresAt = 0, sensitiveAccessTimer;
+let productOrderDirty = false;
 
 async function api(url, options = {}) {
   const { headers: extraHeaders = {}, ...requestOptions } = options;
@@ -60,6 +61,7 @@ function showTab(id) {
 }
 async function load() {
   db = await api('/api/admin/data');
+  productOrderDirty = false;
   if (!Array.isArray(db.customers)) db.customers = [];
   $('loginBox').classList.add('hidden'); $('dashboard').classList.remove('hidden'); $('logout').classList.remove('hidden');
   $('greeting').textContent = db.user.name; $('accountLabel').textContent = db.user.owner ? 'حساب المالك' : `حساب ${db.user.name}`;
@@ -73,6 +75,7 @@ async function load() {
     else document.querySelectorAll('.tab').forEach(x => x.classList.add('hidden'));
   }
   $('newProduct').classList.toggle('hidden', !can('products.manage'));
+  $('saveProductOrder').classList.toggle('hidden', !can('products.manage'));
   $('settingsForm').querySelectorAll('input,textarea,button').forEach(x => x.disabled = !can('settings.manage'));
   $('liveVisitors').textContent = db.liveVisitors || 0;
   if (!$('overviewDate').value) $('overviewDate').value = localDay(new Date().toISOString());
@@ -111,7 +114,20 @@ function renderStats() {
   $('recentOrders').innerHTML = db.orders.length ? db.orders.slice(0, 5).map(o => `<div class="recent-row"><div><b>${esc(o.number)}</b><small>${esc(o.customer.name)} · ${esc(o.customer.city)}</small></div><span class="status-pill">${esc(o.status)}</span><strong>${money(o.total)}</strong></div>`).join('') : '<p class="empty-list">ما فيش طلبات توا.</p>';
 }
 function renderProducts() {
-  $('productList').innerHTML = db.products.length ? db.products.map(p => `<div class="admin-row"><div>${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="">` : '<span class="empty-img">👟</span>'}</div><div><h3>${esc(p.name)} <span class="status-pill">${p.active ? 'ظاهر' : 'مخفي'}</span></h3><p>${esc(p.code)} • ${money(p.price)} • ${Object.values(p.sizes).reduce((a, b) => a + b, 0)} قطعة</p></div>${can('products.manage') ? `<div class="admin-product-actions"><button data-edit="${p.id}">تعديل</button><button class="product-delete" data-delete-product="${p.id}">حذف نهائي</button></div>` : ''}</div>`).join('') : '<p class="empty-list">ما فيش منتجات.</p>';
+  const ordered = [...db.products].sort((left, right) => Number(right.active) - Number(left.active) || Number(left.sortOrder || 0) - Number(right.sortOrder || 0) || left.id.localeCompare(right.id));
+  const activePositions = new Map(ordered.filter(product => product.active).map((product, index) => [product.id, index + 1]));
+  $('saveProductOrder').disabled = !productOrderDirty;
+  $('productOrderNotice').classList.toggle('hidden', !productOrderDirty);
+  if (productOrderDirty) $('productOrderNotice').textContent = 'الترتيب تغيّر ولم يُحفظ بعد.';
+  $('productList').innerHTML = ordered.length ? ordered.map((p, index) => { const activePosition = activePositions.get(p.id); const page = activePosition ? Math.ceil(activePosition / 12) : null; return `<div class="admin-row"><div>${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="">` : '<span class="empty-img">👟</span>'}</div><div><h3>${esc(p.name)} <span class="status-pill">${p.active ? 'ظاهر' : 'مخفي'}</span></h3><p>${esc(p.code)} • ${money(p.price)} • ${Object.values(p.sizes).reduce((a, b) => a + b, 0)} قطعة${page ? ` • الصفحة ${page}` : ''}</p></div>${can('products.manage') ? `<div class="admin-product-actions"><label class="product-order-field"><span>الترتيب</span><input data-product-order="${p.id}" type="number" inputmode="numeric" min="1" max="${ordered.length}" step="1" value="${index + 1}" aria-label="ترتيب ${esc(p.name)}"></label><button data-edit="${p.id}">تعديل</button><button class="product-delete" data-delete-product="${p.id}">حذف نهائي</button></div>` : ''}</div>`; }).join('') : '<p class="empty-list">ما فيش منتجات.</p>';
+  $('productList').querySelectorAll('[data-product-order]').forEach(field => field.onchange = () => {
+    const currentIndex = ordered.findIndex(product => product.id === field.dataset.productOrder);
+    const requested = Math.max(1, Math.min(ordered.length, Math.trunc(Number(field.value) || currentIndex + 1))) - 1;
+    if (requested === currentIndex) { field.value = String(currentIndex + 1); return; }
+    const [moved] = ordered.splice(currentIndex, 1); ordered.splice(requested, 0, moved);
+    db.products = ordered.map((product, position) => ({ ...product, sortOrder: position + 1 }));
+    productOrderDirty = true; renderProducts();
+  });
   $('productList').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openEditor(db.products.find(p => p.id === b.dataset.edit)));
   $('productList').querySelectorAll('[data-delete-product]').forEach(button => button.onclick = async () => {
     const product = db.products.find(item => item.id === button.dataset.deleteProduct);
@@ -120,6 +136,15 @@ function renderProducts() {
     try { await api(`/api/admin/products/${product.id}`, { method: 'DELETE' }); await load(); }
     catch (e) { button.disabled = false; alert(e.message); }
   });
+}
+async function saveProductOrder() {
+  if (!productOrderDirty) return;
+  const button = $('saveProductOrder'); button.disabled = true;
+  try {
+    const ordered = [...db.products].sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0) || left.id.localeCompare(right.id));
+    await api('/api/admin/products/order', { method: 'PUT', body: JSON.stringify({ ids: ordered.map(product => product.id) }) });
+    await load(); $('productOrderNotice').textContent = 'تم حفظ ترتيب المنتجات.'; $('productOrderNotice').classList.remove('hidden');
+  } catch (err) { error('productOrderNotice', err.message); button.disabled = false; }
 }
 function localDay(iso) { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 function renderOrders() {
@@ -349,6 +374,7 @@ $('overviewDate').onchange = renderStats;
 $('previousDay').onclick = () => { $('overviewDate').value = dayShift($('overviewDate').value, -1); renderStats(); };
 $('nextDay').onclick = () => { const next = dayShift($('overviewDate').value, 1), today = localDay(new Date().toISOString()); $('overviewDate').value = next > today ? today : next; renderStats(); };
 $('todayDay').onclick = () => { $('overviewDate').value = localDay(new Date().toISOString()); renderStats(); };
+$('saveProductOrder').onclick = saveProductOrder;
 $('newProduct').onclick = () => openEditor(); $('closeEditor').onclick = closeEditor; $('editorOverlay').onclick = closeEditor; $('productForm').onsubmit = saveProduct;
 $('newStaff').onclick = () => openStaff(); $('closeStaff').onclick = closeStaff; $('staffOverlay').onclick = closeStaff; $('staffForm').onsubmit = saveStaff;
 $('settingsForm').onsubmit = saveSettings;

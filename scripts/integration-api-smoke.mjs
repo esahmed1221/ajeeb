@@ -51,6 +51,11 @@ try {
   assert.equal(login.status, 200);
   const cookie = login.headers.get('set-cookie').split(';')[0];
 
+  const initialAdminData = await fetch(`${origin}/api/admin/data`, { headers: { cookie } }).then(response => response.json());
+  assert.equal(initialAdminData.products[0].sortOrder, 1);
+  assert.equal((await fetch(`${origin}/api/admin/products/order`, { method: 'PUT', headers: { cookie, origin, 'content-type': 'application/json' }, body: JSON.stringify({ ids: [] }) })).status, 409);
+  assert.equal((await fetch(`${origin}/api/admin/products/order`, { method: 'PUT', headers: { cookie, origin, 'content-type': 'application/json' }, body: JSON.stringify({ ids: initialAdminData.products.map(item => item.id) }) })).status, 200);
+
   assert.equal((await fetch(`${origin}/api/v1/orders`)).status, 401);
   assert.equal((await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: '{}' })).status, 403);
   assert.equal((await fetch(`${origin}/api/admin/sensitive-access`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: JSON.stringify({ password: 'wrong-owner-password' }) })).status, 401);

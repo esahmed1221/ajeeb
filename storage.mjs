@@ -56,7 +56,8 @@ async function createDriver(databaseUrl, databaseConfig, databaseDir) {
 async function createSchema(driver) {
   await driver.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
-    CREATE TABLE IF NOT EXISTS products (id uuid PRIMARY KEY, code varchar(40) NOT NULL UNIQUE, name varchar(120) NOT NULL, price integer NOT NULL CHECK (price > 0), old_price integer NOT NULL DEFAULT 0 CHECK (old_price >= 0), active boolean NOT NULL DEFAULT true, updated_at timestamptz NOT NULL);
+    CREATE TABLE IF NOT EXISTS products (id uuid PRIMARY KEY, code varchar(40) NOT NULL UNIQUE, name varchar(120) NOT NULL, price integer NOT NULL CHECK (price > 0), old_price integer NOT NULL DEFAULT 0 CHECK (old_price >= 0), active boolean NOT NULL DEFAULT true, sort_order integer NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL);
+    ALTER TABLE products ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0;
     CREATE TABLE IF NOT EXISTS product_images (product_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE, position smallint NOT NULL CHECK (position BETWEEN 0 AND 5), path text NOT NULL, PRIMARY KEY (product_id, position));
     CREATE TABLE IF NOT EXISTS inventory (product_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE, size smallint NOT NULL CHECK (size BETWEEN 20 AND 50), stock integer NOT NULL CHECK (stock >= 0), PRIMARY KEY (product_id, size));
     CREATE TABLE IF NOT EXISTS staff (id uuid PRIMARY KEY, name varchar(80) NOT NULL, username varchar(32) NOT NULL UNIQUE, active boolean NOT NULL DEFAULT true, permissions jsonb NOT NULL DEFAULT '[]'::jsonb, password_salt text NOT NULL, password_hash text NOT NULL, session_version integer NOT NULL DEFAULT 1, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL);
@@ -89,7 +90,7 @@ async function legacyState(driver, dataFile) {
 }
 
 async function insertProduct(tx, product) {
-  await tx.query(`INSERT INTO products (id,code,name,price,old_price,active,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET code=EXCLUDED.code,name=EXCLUDED.name,price=EXCLUDED.price,old_price=EXCLUDED.old_price,active=EXCLUDED.active,updated_at=EXCLUDED.updated_at`, [product.id, product.code, product.name, product.price, product.oldPrice || 0, product.active, product.updatedAt]);
+  await tx.query(`INSERT INTO products (id,code,name,price,old_price,active,sort_order,updated_at) VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7,(SELECT COALESCE(max(sort_order),0)+1 FROM products)),$8) ON CONFLICT (id) DO UPDATE SET code=EXCLUDED.code,name=EXCLUDED.name,price=EXCLUDED.price,old_price=EXCLUDED.old_price,active=EXCLUDED.active,updated_at=EXCLUDED.updated_at`, [product.id, product.code, product.name, product.price, product.oldPrice || 0, product.active, product.sortOrder ?? null, product.updatedAt]);
   await tx.query('DELETE FROM product_images WHERE product_id=$1', [product.id]);
   await tx.query('DELETE FROM inventory WHERE product_id=$1', [product.id]);
   for (const [position, image] of (product.images || []).entries()) await tx.query('INSERT INTO product_images (product_id,position,path) VALUES ($1,$2,$3)', [product.id, position, image]);
@@ -210,6 +211,20 @@ async function migrateMetaPixelSettings(driver) {
   });
 }
 
+async function migrateProductOrdering(driver) {
+  const already = await driver.query('SELECT 1 FROM schema_migrations WHERE version=10');
+  if (already.rowCount) return;
+  await driver.transaction(async tx => {
+    await tx.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0');
+    await tx.query(`WITH ranked AS (
+      SELECT id,row_number() OVER (ORDER BY active DESC,updated_at DESC,id) AS position FROM products
+    )
+    UPDATE products SET sort_order=ranked.position FROM ranked WHERE products.id=ranked.id`);
+    await tx.query('CREATE INDEX IF NOT EXISTS products_catalog_order_idx ON products (active,sort_order,id)');
+    await tx.query('INSERT INTO schema_migrations (version) VALUES (10)');
+  });
+}
+
 const productSelect = `
   SELECT p.*,
     COALESCE((SELECT jsonb_agg(pi.path ORDER BY pi.position) FROM product_images pi WHERE pi.product_id=p.id), '[]'::jsonb) AS images,
@@ -222,7 +237,7 @@ const orderSelect = `
 
 function mapProduct(row) {
   const sizes = jsonValue(row.sizes, {});
-  return { id: row.id, code: row.code, name: row.name, price: Number(row.price), oldPrice: Number(row.old_price), active: row.active, updatedAt: new Date(row.updated_at).toISOString(), images: jsonValue(row.images, []), sizes: Object.fromEntries(Object.entries(sizes).map(([size, stock]) => [size, Number(stock)])) };
+  return { id: row.id, code: row.code, name: row.name, price: Number(row.price), oldPrice: Number(row.old_price), active: row.active, sortOrder: Number(row.sort_order), updatedAt: new Date(row.updated_at).toISOString(), images: jsonValue(row.images, []), sizes: Object.fromEntries(Object.entries(sizes).map(([size, stock]) => [size, Number(stock)])) };
 }
 function mapStaff(row) {
   return { id: row.id, name: row.name, username: row.username, active: row.active, permissions: jsonValue(row.permissions, []), salt: row.password_salt, hash: row.password_hash, sessionVersion: Number(row.session_version), createdAt: new Date(row.created_at).toISOString(), updatedAt: new Date(row.updated_at).toISOString() };
@@ -243,7 +258,7 @@ function mapIntegrationApiKey(row, includeHash = false) {
 }
 
 async function listProducts(driver, activeOnly = false) {
-  const result = await driver.query(`${productSelect}${activeOnly ? ' WHERE p.active=true' : ''} ORDER BY p.updated_at DESC`);
+  const result = await driver.query(`${productSelect}${activeOnly ? ' WHERE p.active=true' : ''} ORDER BY p.active DESC,p.sort_order,p.id`);
   return result.rows.map(mapProduct);
 }
 function catalogConditions(query, size) {
@@ -265,7 +280,7 @@ async function listCatalogPage(driver, { page = 1, pageSize = 12, query = '', si
   const totalPages = Math.ceil(totalItems / pageSize);
   const currentPage = totalPages ? Math.min(Math.max(page, 1), totalPages) : 1;
   const params = [...filter.params, pageSize, (currentPage - 1) * pageSize];
-  const result = await driver.query(`${productSelect} WHERE ${filter.where} ORDER BY p.updated_at DESC,p.id LIMIT $${filter.params.length + 1} OFFSET $${filter.params.length + 2}`, params);
+  const result = await driver.query(`${productSelect} WHERE ${filter.where} ORDER BY p.sort_order,p.id LIMIT $${filter.params.length + 1} OFFSET $${filter.params.length + 2}`, params);
   return { products: result.rows.map(mapProduct), page: currentPage, pageSize, totalItems, totalPages };
 }
 async function listAvailableSizes(driver) {
@@ -275,8 +290,25 @@ async function listAvailableSizes(driver) {
 async function listProductsByIds(driver, ids) {
   if (!ids.length) return [];
   const placeholders = ids.map((_, index) => `$${index + 1}`).join(',');
-  const result = await driver.query(`${productSelect} WHERE p.active=true AND p.id IN (${placeholders}) ORDER BY p.updated_at DESC,p.id`, ids);
+  const result = await driver.query(`${productSelect} WHERE p.active=true AND p.id IN (${placeholders}) ORDER BY p.sort_order,p.id`, ids);
   return result.rows.map(mapProduct);
+}
+async function reorderProducts(driver, ids) {
+  return driver.transaction(async tx => {
+    const current = await tx.query('SELECT id FROM products FOR UPDATE');
+    const currentIds = new Set(current.rows.map(row => row.id));
+    if (ids.length !== currentIds.size || new Set(ids).size !== ids.length || ids.some(id => !currentIds.has(id))) {
+      const error = new Error('INVALID_PRODUCT_ORDER'); error.code = 'INVALID_PRODUCT_ORDER'; throw error;
+    }
+    if (!ids.length) return 0;
+    const params = [];
+    const values = ids.map((productId, index) => {
+      params.push(productId, index + 1);
+      return `($${params.length - 1}::uuid,$${params.length}::integer)`;
+    });
+    const result = await tx.query(`UPDATE products AS product SET sort_order=ordering.position FROM (VALUES ${values.join(',')}) AS ordering(id,position) WHERE product.id=ordering.id`, params);
+    return result.rowCount;
+  });
 }
 async function findProduct(driver, id) {
   const result = await driver.query(`${productSelect} WHERE p.id=$1`, [id]);
@@ -364,13 +396,14 @@ async function getSettings(driver) {
 export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
   fs.mkdirSync(dataDir, { recursive: true });
   const driver = await createDriver(databaseUrl, databaseConfig, path.join(dataDir, 'postgres'));
-  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver); await migrateOrderNumberFloor(driver); await migrateOrderItemImages(driver); await migrateIntegrationApiKeys(driver); await migrateGenericOrderApiKey(driver); await migrateMetaPixelSettings(driver);
+  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver); await migrateOrderNumberFloor(driver); await migrateOrderItemImages(driver); await migrateIntegrationApiKeys(driver); await migrateGenericOrderApiKey(driver); await migrateMetaPixelSettings(driver); await migrateProductOrdering(driver);
   return {
     kind: driver.kind,
     listProducts: ({ activeOnly = false } = {}) => listProducts(driver, activeOnly),
     listCatalogPage: options => listCatalogPage(driver, options),
     listAvailableSizes: () => listAvailableSizes(driver),
     listProductsByIds: ids => listProductsByIds(driver, ids),
+    reorderProducts: ids => reorderProducts(driver, ids),
     findProduct: id => findProduct(driver, id),
     deleteProduct: id => deleteProduct(driver, id),
     imagePathInUse: imagePath => imagePathInUse(driver, imagePath),

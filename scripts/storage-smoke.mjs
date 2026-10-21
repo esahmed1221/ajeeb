@@ -77,13 +77,18 @@ try {
     const pagedProduct = { id: crypto.randomUUID(), code: `PAGE-${index}`, name: `منتج صفحة ${index}`, price: 50 + index, oldPrice: 0, active: true, updatedAt: new Date(Date.now() + index + 1000).toISOString(), images: [], sizes: index === 15 ? { 43: 1 } : { 42: 1 } };
     pageProducts.push(pagedProduct); await storage.saveProduct(pagedProduct);
   }
+  await storage.reorderProducts([...pageProducts.map(item => item.id), product.id]);
   const firstPage = await storage.listCatalogPage({ page: 1, pageSize: 12 });
   const secondPage = await storage.listCatalogPage({ page: 2, pageSize: 12 });
   assert.equal(firstPage.products.length, 12);
+  assert.deepEqual(firstPage.products.map(item => item.code), pageProducts.slice(0, 12).map(item => item.code));
   assert.equal(firstPage.totalItems, 17);
   assert.equal(firstPage.totalPages, 2);
   assert.equal(secondPage.page, 2);
   assert.equal(secondPage.products.length, 5);
+  assert.deepEqual(secondPage.products.map(item => item.code), [...pageProducts.slice(12).map(item => item.code), product.code]);
+  assert.deepEqual((await storage.listProducts()).map(item => item.sortOrder), Array.from({ length: 17 }, (_, index) => index + 1));
+  await assert.rejects(() => storage.reorderProducts(pageProducts.map(item => item.id)), error => error.code === 'INVALID_PRODUCT_ORDER');
   assert.equal((await storage.listCatalogPage({ page: 1, pageSize: 12, query: 'PAGE-15' })).totalItems, 1);
   assert.equal((await storage.listCatalogPage({ page: 1, pageSize: 12, size: '43' })).totalItems, 1);
   assert.deepEqual(await storage.listAvailableSizes(), ['42', '43']);

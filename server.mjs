@@ -125,7 +125,8 @@ function liveVisitorCount() {
   return activeVisitors.size;
 }
 function productForPublic(p) {
-  return { id: p.id, code: p.code, name: p.name, price: p.price, oldPrice: p.oldPrice, images: p.images, sizes: p.sizes, active: p.active };
+  const availableSizes = Object.fromEntries(Object.entries(p.sizes || {}).filter(([, stock]) => Number(stock) > 0));
+  return { id: p.id, code: p.code, name: p.name, price: p.price, oldPrice: p.oldPrice, images: p.images, sizes: availableSizes, active: p.active };
 }
 function publicTrackingStatus(status) {
   return ({

@@ -7,7 +7,7 @@ const permissionGroups = [
   { title: 'المنتجات', view: 'products.view', manage: 'products.manage' },
   { title: 'إعدادات المتجر', view: 'settings.view', manage: 'settings.manage' }
 ];
-let db = { products: [], orders: [], customers: [], staff: [], settings: null, integrationApiKey: null, user: null }, imageUrls = [];
+let db = { products: [], orders: [], customers: [], staff: [], settings: null, integrationApiKey: null, user: null }, productImageItems = [];
 let heroImages = { heroImage: '', heroMobileImage: '' };
 const previewUrls = {};
 let presenceTimer;
@@ -352,17 +352,60 @@ async function copyApiKey() {
   catch { $('generatedApiKey').focus(); $('generatedApiKey').select(); document.execCommand('copy'); }
   $('apiIntegrationNotice').textContent = 'تم نسخ المفتاح.'; $('apiIntegrationNotice').classList.remove('hidden');
 }
-function closeEditor() { $('editor').classList.add('hidden'); $('editorOverlay').classList.add('hidden'); document.body.style.overflow = ''; }
+function releaseProductImagePreviews() {
+  productImageItems.forEach(item => { if (item.preview) URL.revokeObjectURL(item.preview); });
+  productImageItems = [];
+}
+function closeEditor() { releaseProductImagePreviews(); $('productImages').value = ''; $('editor').classList.add('hidden'); $('editorOverlay').classList.add('hidden'); document.body.style.overflow = ''; }
 function openEditor(p) {
+  releaseProductImagePreviews();
   $('productForm').reset(); clearError('productError'); $('productNotice').classList.add('hidden');
   $('productId').value = p?.id || ''; $('editorTitle').textContent = p ? 'تعديل المنتج' : 'إضافة منتج';
   $('productName').value = p?.name || ''; $('productCode').value = p?.code || ''; $('productPrice').value = p?.price || ''; $('productOldPrice').value = p?.oldPrice || '';
   const sizes = [...new Set([...Array.from({ length: 7 }, (_, i) => String(40 + i)), ...Object.keys(p?.sizes || {})])].sort((a, b) => Number(a) - Number(b));
   $('sizeInputs').innerHTML = sizes.map(size => `<label class="size-entry"><span>${size}</span><input data-size-qty="${size}" type="number" inputmode="numeric" min="0" max="100000" step="1" placeholder="—" value="${p?.sizes?.[size] || ''}" aria-label="كمية مقاس ${size}"></label>`).join('');
-  $('productActive').checked = p ? p.active : true; imageUrls = [...(p?.images || [])]; renderImages();
+  $('productActive').checked = p ? p.active : true; productImageItems = (p?.images || []).map(url => ({ url })); renderImages();
   $('editor').classList.remove('hidden'); $('editorOverlay').classList.remove('hidden'); document.body.style.overflow = 'hidden';
 }
-function renderImages() { $('imagePreview').innerHTML = imageUrls.map((url, i) => `<button type="button" data-remove-img="${i}" aria-label="إزالة الصورة"><img src="${esc(url)}" alt="الصورة ${i + 1}">×</button>`).join(''); $('imagePreview').querySelectorAll('[data-remove-img]').forEach(b => b.onclick = () => { imageUrls.splice(Number(b.dataset.removeImg), 1); renderImages(); }); }
+function renderImages() {
+  $('imagePreview').innerHTML = productImageItems.map((item, index) => { const source = item.url || item.preview; return `<div class="image-sort-card ${index === 0 ? 'is-primary' : ''}" data-image-index="${index}"><span class="image-position">${index + 1}</span><img src="${esc(source)}" alt="الصورة ${index + 1}"><button type="button" class="image-drag-handle" data-drag-image="${index}" draggable="true" aria-label="اسحب لتغيير ترتيب الصورة ${index + 1}"><span aria-hidden="true">⋮⋮</span> سحب</button>${index === 0 ? '<strong class="primary-image-badge">الرئيسية</strong>' : `<button type="button" class="make-primary-image" data-primary-img="${index}">اجعلها الرئيسية</button>`}<button type="button" class="remove-product-image" data-remove-img="${index}" aria-label="إزالة الصورة ${index + 1}">×</button></div>`; }).join('');
+  $('imagePreview').querySelectorAll('[data-remove-img]').forEach(button => button.onclick = () => { const [removed] = productImageItems.splice(Number(button.dataset.removeImg), 1); if (removed?.preview) URL.revokeObjectURL(removed.preview); renderImages(); });
+  $('imagePreview').querySelectorAll('[data-primary-img]').forEach(button => button.onclick = () => { const [selected] = productImageItems.splice(Number(button.dataset.primaryImg), 1); productImageItems.unshift(selected); renderImages(); });
+  bindImageDragging();
+}
+function bindImageDragging() {
+  const root = $('imagePreview'), cards = [...root.querySelectorAll('[data-image-index]')]; let draggedIndex = -1, touchTarget = -1, touchAfter = false;
+  const clearMarkers = () => cards.forEach(card => card.classList.remove('image-drop-before', 'image-drop-after'));
+  const clearDragging = () => { clearMarkers(); cards.forEach(card => card.classList.remove('is-dragging')); draggedIndex = -1; touchTarget = -1; };
+  const markTarget = (card, clientX) => {
+    clearMarkers(); const bounds = card.getBoundingClientRect(), rtl = getComputedStyle(root).direction === 'rtl', after = rtl ? clientX < bounds.left + bounds.width / 2 : clientX > bounds.left + bounds.width / 2;
+    card.classList.add(after ? 'image-drop-after' : 'image-drop-before'); return after;
+  };
+  const moveImage = (sourceIndex, targetIndex, after) => {
+    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+    const [moved] = productImageItems.splice(sourceIndex, 1);
+    if (sourceIndex < targetIndex) targetIndex--;
+    if (after) targetIndex++;
+    productImageItems.splice(targetIndex, 0, moved); renderImages();
+  };
+  cards.forEach(card => {
+    card.ondragover = event => { if (draggedIndex < 0 || draggedIndex === Number(card.dataset.imageIndex)) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; markTarget(card, event.clientX); };
+    card.ondrop = event => { if (draggedIndex < 0) return; event.preventDefault(); const source = draggedIndex, target = Number(card.dataset.imageIndex), after = card.classList.contains('image-drop-after'); clearDragging(); moveImage(source, target, after); };
+  });
+  root.querySelectorAll('[data-drag-image]').forEach(handle => {
+    handle.ondragstart = event => { draggedIndex = Number(handle.dataset.dragImage); handle.closest('[data-image-index]')?.classList.add('is-dragging'); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', String(draggedIndex)); };
+    handle.ondragend = clearDragging;
+    handle.onpointerdown = event => {
+      if (event.pointerType === 'mouse') return;
+      event.preventDefault(); draggedIndex = Number(handle.dataset.dragImage); handle.closest('[data-image-index]')?.classList.add('is-dragging'); handle.setPointerCapture(event.pointerId);
+      const move = pointerEvent => { pointerEvent.preventDefault(); const target = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY)?.closest('[data-image-index]'); if (!target || Number(target.dataset.imageIndex) === draggedIndex) { clearMarkers(); touchTarget = -1; return; } touchTarget = Number(target.dataset.imageIndex); touchAfter = markTarget(target, pointerEvent.clientX); };
+      const finish = () => { const source = draggedIndex, target = touchTarget, after = touchAfter; cleanup(); moveImage(source, target, after); };
+      const cancel = () => cleanup();
+      const cleanup = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', finish); handle.removeEventListener('pointercancel', cancel); clearDragging(); };
+      handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', finish); handle.addEventListener('pointercancel', cancel);
+    };
+  });
+}
 async function fileToData(file) {
   if (!file.type.startsWith('image/')) throw new Error('اختَر ملف صورة');
   const source = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error('تعذر قراءة ملف الصورة')); reader.readAsDataURL(file); });
@@ -383,10 +426,14 @@ async function saveProduct(e) {
   try {
     const sizes = {}; for (const field of $('sizeInputs').querySelectorAll('[data-size-qty]')) { const value = field.value.trim(); sizes[field.dataset.sizeQty] = value === '' ? 0 : Number(value); }
     if (Object.values(sizes).some(value => !Number.isSafeInteger(value) || value < 0)) throw new Error('اكتب كميات صحيحة للمقاسات');
-    const files = [...$('productImages').files]; if (imageUrls.length + files.length > 6) throw new Error('الحد الأقصى 6 صور');
-    for (const [i, file] of files.entries()) { $('productNotice').textContent = `جاري تجهيز ورفع الصورة ${i + 1} من ${files.length}...`; $('productNotice').classList.remove('hidden'); imageUrls.push(await uploadImage(file, 'product')); renderImages(); }
+    if (productImageItems.length > 6) throw new Error('الحد الأقصى 6 صور');
+    const pendingCount = productImageItems.filter(item => item.file).length, images = []; let uploaded = 0;
+    for (const item of productImageItems) {
+      if (item.file) { uploaded++; $('productNotice').textContent = `جاري تجهيز ورفع الصورة ${uploaded} من ${pendingCount}...`; $('productNotice').classList.remove('hidden'); images.push(await uploadImage(item.file, 'product')); }
+      else images.push(item.url);
+    }
     $('productNotice').textContent = 'جاري حفظ المنتج...'; $('productNotice').classList.remove('hidden');
-    const input = { name: $('productName').value, code: $('productCode').value, price: Number($('productPrice').value), oldPrice: Number($('productOldPrice').value || 0), sizes, images: imageUrls, active: $('productActive').checked };
+    const input = { name: $('productName').value, code: $('productCode').value, price: Number($('productPrice').value), oldPrice: Number($('productOldPrice').value || 0), sizes, images, active: $('productActive').checked };
     const id = $('productId').value; await api(id ? `/api/admin/products/${id}` : '/api/admin/products', { method: id ? 'PUT' : 'POST', body: JSON.stringify(input) }); closeEditor(); await load();
   } catch (err) { error('productError', err.message); } finally { $('productNotice').classList.add('hidden'); button.disabled = false; }
 }
@@ -441,6 +488,12 @@ $('nextDay').onclick = () => { const next = dayShift($('overviewDate').value, 1)
 $('todayDay').onclick = () => { $('overviewDate').value = localDay(new Date().toISOString()); renderStats(); };
 $('saveProductOrder').onclick = saveProductOrder;
 $('newProduct').onclick = () => openEditor(); $('closeEditor').onclick = closeEditor; $('editorOverlay').onclick = closeEditor; $('productForm').onsubmit = saveProduct;
+$('productImages').onchange = () => {
+  clearError('productError'); const files = [...$('productImages').files];
+  if (productImageItems.length + files.length > 6) { error('productError', 'الحد الأقصى 6 صور'); $('productImages').value = ''; return; }
+  if (files.some(file => !file.type.startsWith('image/'))) { error('productError', 'اختَر ملفات صور فقط'); $('productImages').value = ''; return; }
+  productImageItems.push(...files.map(file => ({ file, preview: URL.createObjectURL(file) }))); $('productImages').value = ''; renderImages();
+};
 $('newStaff').onclick = () => openStaff(); $('closeStaff').onclick = closeStaff; $('staffOverlay').onclick = closeStaff; $('staffForm').onsubmit = saveStaff;
 $('settingsForm').onsubmit = saveSettings;
 $('editSensitiveSettings').onclick = () => sensitiveAccessIsValid() ? lockSensitiveSettings() : openSensitiveUnlock();

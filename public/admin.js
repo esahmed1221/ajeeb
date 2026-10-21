@@ -115,19 +115,21 @@ function renderStats() {
 }
 function renderProducts() {
   const ordered = [...db.products].sort((left, right) => Number(right.active) - Number(left.active) || Number(left.sortOrder || 0) - Number(right.sortOrder || 0) || left.id.localeCompare(right.id));
-  const activePositions = new Map(ordered.filter(product => product.active).map((product, index) => [product.id, index + 1]));
+  const activeProducts = ordered.filter(product => product.active), activePositions = new Map(activeProducts.map((product, index) => [product.id, index + 1]));
   $('saveProductOrder').disabled = !productOrderDirty;
   $('productOrderNotice').classList.toggle('hidden', !productOrderDirty);
   if (productOrderDirty) $('productOrderNotice').textContent = 'الترتيب تغيّر ولم يُحفظ بعد.';
-  $('productList').innerHTML = ordered.length ? ordered.map((p, index) => { const activePosition = activePositions.get(p.id); const page = activePosition ? Math.ceil(activePosition / 12) : null; return `<div class="admin-row"><div>${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="">` : '<span class="empty-img">👟</span>'}</div><div><h3>${esc(p.name)} <span class="status-pill">${p.active ? 'ظاهر' : 'مخفي'}</span></h3><p>${esc(p.code)} • ${money(p.price)} • ${Object.values(p.sizes).reduce((a, b) => a + b, 0)} قطعة${page ? ` • الصفحة ${page}` : ''}</p></div>${can('products.manage') ? `<div class="admin-product-actions"><label class="product-order-field"><span>الترتيب</span><input data-product-order="${p.id}" type="number" inputmode="numeric" min="1" max="${ordered.length}" step="1" value="${index + 1}" aria-label="ترتيب ${esc(p.name)}"></label><button data-edit="${p.id}">تعديل</button><button class="product-delete" data-delete-product="${p.id}">حذف نهائي</button></div>` : ''}</div>`; }).join('') : '<p class="empty-list">ما فيش منتجات.</p>';
+  $('productList').innerHTML = ordered.length ? ordered.map((p, index) => { const activePosition = activePositions.get(p.id), page = activePosition ? Math.ceil(activePosition / 12) : null, minimum = p.active ? 1 : activeProducts.length + 1, maximum = p.active ? activeProducts.length : ordered.length; return `<div class="admin-row product-sort-row" data-product-row="${p.id}"><div>${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="">` : '<span class="empty-img">👟</span>'}</div><div><h3>${esc(p.name)} <span class="status-pill">${p.active ? 'ظاهر' : 'مخفي'}</span></h3><p>${esc(p.code)} • ${money(p.price)} • ${Object.values(p.sizes).reduce((a, b) => a + b, 0)} قطعة${page ? ` • الصفحة ${page}` : ''}</p></div>${can('products.manage') ? `<div class="admin-product-actions"><button type="button" class="product-drag-handle" data-drag-product="${p.id}" draggable="true" aria-label="اسحب لتغيير ترتيب ${esc(p.name)}" title="اسحب المنتج للمكان المطلوب"><span aria-hidden="true">⋮⋮</span><small>سحب</small></button><label class="product-order-field"><span>الترتيب</span><input data-product-order="${p.id}" type="number" inputmode="numeric" min="${minimum}" max="${maximum}" step="1" value="${index + 1}" aria-label="ترتيب ${esc(p.name)}"></label><button data-edit="${p.id}">تعديل</button><button class="product-delete" data-delete-product="${p.id}">حذف نهائي</button></div>` : ''}</div>`; }).join('') : '<p class="empty-list">ما فيش منتجات.</p>';
   $('productList').querySelectorAll('[data-product-order]').forEach(field => field.onchange = () => {
     const currentIndex = ordered.findIndex(product => product.id === field.dataset.productOrder);
-    const requested = Math.max(1, Math.min(ordered.length, Math.trunc(Number(field.value) || currentIndex + 1))) - 1;
+    const product = ordered[currentIndex], minimum = product.active ? 1 : activeProducts.length + 1, maximum = product.active ? activeProducts.length : ordered.length;
+    const requested = Math.max(minimum, Math.min(maximum, Math.trunc(Number(field.value) || currentIndex + 1))) - 1;
     if (requested === currentIndex) { field.value = String(currentIndex + 1); return; }
     const [moved] = ordered.splice(currentIndex, 1); ordered.splice(requested, 0, moved);
     db.products = ordered.map((product, position) => ({ ...product, sortOrder: position + 1 }));
     productOrderDirty = true; renderProducts();
   });
+  bindProductDragging(ordered);
   $('productList').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openEditor(db.products.find(p => p.id === b.dataset.edit)));
   $('productList').querySelectorAll('[data-delete-product]').forEach(button => button.onclick = async () => {
     const product = db.products.find(item => item.id === button.dataset.deleteProduct);
@@ -135,6 +137,69 @@ function renderProducts() {
     button.disabled = true;
     try { await api(`/api/admin/products/${product.id}`, { method: 'DELETE' }); await load(); }
     catch (e) { button.disabled = false; alert(e.message); }
+  });
+}
+function bindProductDragging(ordered) {
+  const list = $('productList'), rows = [...list.querySelectorAll('[data-product-row]')];
+  let draggedId = '', touchTargetId = '', touchAfter = false;
+  const productById = id => ordered.find(product => product.id === id);
+  const sameGroup = (sourceId, targetId) => Boolean(productById(sourceId)?.active) === Boolean(productById(targetId)?.active);
+  const clearDropMarkers = () => rows.forEach(row => row.classList.remove('drop-before', 'drop-after'));
+  const clearDragging = () => { clearDropMarkers(); rows.forEach(row => row.classList.remove('is-dragging')); draggedId = ''; touchTargetId = ''; };
+  const markTarget = (row, clientY) => {
+    clearDropMarkers();
+    const bounds = row.getBoundingClientRect(), after = clientY > bounds.top + bounds.height / 2;
+    row.classList.add(after ? 'drop-after' : 'drop-before');
+    return after;
+  };
+  const moveProduct = (sourceId, targetId, after) => {
+    if (!sourceId || !targetId || sourceId === targetId || !sameGroup(sourceId, targetId)) return;
+    const sourceIndex = ordered.findIndex(product => product.id === sourceId);
+    if (sourceIndex < 0) return;
+    const [moved] = ordered.splice(sourceIndex, 1);
+    let targetIndex = ordered.findIndex(product => product.id === targetId);
+    if (targetIndex < 0) return;
+    if (after) targetIndex++;
+    ordered.splice(targetIndex, 0, moved);
+    db.products = ordered.map((product, position) => ({ ...product, sortOrder: position + 1 }));
+    productOrderDirty = true; renderProducts();
+  };
+  rows.forEach(row => {
+    row.ondragover = event => {
+      if (!draggedId || draggedId === row.dataset.productRow || !sameGroup(draggedId, row.dataset.productRow)) return;
+      event.preventDefault(); event.dataTransfer.dropEffect = 'move'; markTarget(row, event.clientY);
+      if (event.clientY < 80) window.scrollBy(0, -14); else if (event.clientY > window.innerHeight - 80) window.scrollBy(0, 14);
+    };
+    row.ondrop = event => {
+      if (!draggedId) return;
+      event.preventDefault(); const sourceId = draggedId, after = row.classList.contains('drop-after'), targetId = row.dataset.productRow;
+      clearDragging(); moveProduct(sourceId, targetId, after);
+    };
+  });
+  list.querySelectorAll('[data-drag-product]').forEach(handle => {
+    handle.ondragstart = event => {
+      draggedId = handle.dataset.dragProduct; handle.closest('[data-product-row]')?.classList.add('is-dragging');
+      event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', draggedId);
+    };
+    handle.ondragend = clearDragging;
+    handle.onpointerdown = event => {
+      if (event.pointerType === 'mouse') return;
+      event.preventDefault(); draggedId = handle.dataset.dragProduct; handle.closest('[data-product-row]')?.classList.add('is-dragging'); handle.setPointerCapture(event.pointerId);
+      const move = pointerEvent => {
+        pointerEvent.preventDefault();
+        if (pointerEvent.clientY < 80) window.scrollBy(0, -14); else if (pointerEvent.clientY > window.innerHeight - 80) window.scrollBy(0, 14);
+        const target = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY)?.closest('[data-product-row]');
+        if (!target || target.dataset.productRow === draggedId || !sameGroup(draggedId, target.dataset.productRow)) { clearDropMarkers(); touchTargetId = ''; return; }
+        touchTargetId = target.dataset.productRow; touchAfter = markTarget(target, pointerEvent.clientY);
+      };
+      const finish = () => {
+        const sourceId = draggedId, targetId = touchTargetId, after = touchAfter;
+        handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', finish); handle.removeEventListener('pointercancel', cancel);
+        clearDragging(); moveProduct(sourceId, targetId, after);
+      };
+      const cancel = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', finish); handle.removeEventListener('pointercancel', cancel); clearDragging(); };
+      handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', finish); handle.addEventListener('pointercancel', cancel);
+    };
   });
 }
 async function saveProductOrder() {

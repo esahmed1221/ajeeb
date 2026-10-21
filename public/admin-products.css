@@ -4,6 +4,50 @@
   gap: 7px;
 }
 
+.product-sort-row {
+  position: relative;
+  transition: opacity .16s ease, background .16s ease, transform .16s ease;
+}
+
+.product-sort-row.is-dragging {
+  opacity: .38;
+  background: #eef8f7;
+  transform: scale(.995);
+}
+
+.product-sort-row.drop-before::before,
+.product-sort-row.drop-after::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--teal);
+  box-shadow: 0 0 0 3px #0b938822;
+  content: "";
+}
+
+.product-sort-row.drop-before::before { top: -2px; }
+.product-sort-row.drop-after::after { bottom: -2px; }
+
+.admin-row .product-drag-handle {
+  display: grid;
+  place-items: center;
+  min-width: 54px;
+  padding: 5px 9px;
+  border-style: dashed;
+  background: #f4faf9;
+  color: var(--teal);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.admin-row .product-drag-handle:active { cursor: grabbing; }
+.product-drag-handle span { font-size: 22px; line-height: .8; letter-spacing: -6px; transform: rotate(90deg); }
+.product-drag-handle small { color: inherit; font-size: 9px; font-weight: 900; }
+
 .product-panel-actions {
   display: flex;
   align-items: center;
@@ -70,6 +114,12 @@
   .admin-product-actions button {
     padding: 7px 9px;
     font-size: 11px;
+  }
+
+  .admin-row .product-drag-handle {
+    grid-template-columns:20px auto;
+    justify-content: center;
+    min-width: 0;
   }
 
   .product-order-field {

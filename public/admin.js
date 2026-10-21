@@ -2,6 +2,7 @@ const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => `${Number(n || 0).toLocaleString('ar-LY')} د.ل`;
 const statuses = ['جديد', 'تم التأكيد', 'جاري التجهيز', 'خرج للتوصيل', 'تم التسليم', 'ملغي', 'راجع'];
+const standardProductSizes = Array.from({ length: 21 }, (_, index) => String(30 + index));
 const permissionGroups = [
   { title: 'الطلبات', view: 'orders.view', manage: 'orders.manage' },
   { title: 'المنتجات', view: 'products.view', manage: 'products.manage' },
@@ -362,7 +363,7 @@ function openEditor(p) {
   $('productForm').reset(); clearError('productError'); $('productNotice').classList.add('hidden');
   $('productId').value = p?.id || ''; $('editorTitle').textContent = p ? 'تعديل المنتج' : 'إضافة منتج';
   $('productName').value = p?.name || ''; $('productCode').value = p?.code || ''; $('productPrice').value = p?.price || ''; $('productOldPrice').value = p?.oldPrice || '';
-  const sizes = [...new Set([...Array.from({ length: 7 }, (_, i) => String(40 + i)), ...Object.keys(p?.sizes || {})])].sort((a, b) => Number(a) - Number(b));
+  const sizes = [...new Set([...standardProductSizes, ...Object.keys(p?.sizes || {})])].sort((a, b) => Number(a) - Number(b));
   $('sizeInputs').innerHTML = sizes.map(size => `<label class="size-entry"><span>${size}</span><input data-size-qty="${size}" type="number" inputmode="numeric" min="0" max="100000" step="1" placeholder="—" value="${p?.sizes?.[size] || ''}" aria-label="كمية مقاس ${size}"></label>`).join('');
   $('productActive').checked = p ? p.active : true; productImageItems = (p?.images || []).map(url => ({ url })); renderImages();
   $('editor').classList.remove('hidden'); $('editorOverlay').classList.remove('hidden'); document.body.style.overflow = 'hidden';

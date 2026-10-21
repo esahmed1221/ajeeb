@@ -20,10 +20,12 @@ try {
   assert.equal((await storage.getSettings()).telegramChatId, '-1001234567890');
   assert.equal((await storage.getSettings()).metaPixelId, '123456789012345');
 
-  const product = { id: crypto.randomUUID(), code: 'TEST-1', name: 'منتج اختبار', price: 120, oldPrice: 150, active: true, updatedAt: new Date().toISOString(), images: ['/products/test.png'], sizes: { 42: 3 } };
+  const product = { id: crypto.randomUUID(), code: 'TEST-1', name: 'منتج اختبار', price: 120, oldPrice: 150, active: true, updatedAt: new Date().toISOString(), images: ['/products/test.png'], sizes: { 30: 2, 42: 3, 50: 1 } };
   await storage.saveProduct(product);
   assert.equal(await storage.productCodeExists(product.code), true);
+  assert.equal((await storage.listProducts({ activeOnly: true }))[0].sizes['30'], 2);
   assert.equal((await storage.listProducts({ activeOnly: true }))[0].sizes['42'], 3);
+  assert.equal((await storage.listProducts({ activeOnly: true }))[0].sizes['50'], 1);
 
   const order = await storage.createOrder({ id: crypto.randomUUID(), customer: { name: 'عميل اختبار', phone: '0910000000', city: 'طرابلس', address: 'عنوان اختبار صالح', notes: '' }, lines: [{ productId: product.id, size: '42', qty: 2 }], createdAt: new Date().toISOString() });
   assert.equal(order.number, '5000');
@@ -91,7 +93,9 @@ try {
   await assert.rejects(() => storage.reorderProducts(pageProducts.map(item => item.id)), error => error.code === 'INVALID_PRODUCT_ORDER');
   assert.equal((await storage.listCatalogPage({ page: 1, pageSize: 12, query: 'PAGE-15' })).totalItems, 1);
   assert.equal((await storage.listCatalogPage({ page: 1, pageSize: 12, size: '43' })).totalItems, 1);
-  assert.deepEqual(await storage.listAvailableSizes(), ['42', '43']);
+  assert.equal((await storage.listCatalogPage({ page: 1, pageSize: 12, size: '30' })).totalItems, 1);
+  assert.equal((await storage.listCatalogPage({ page: 1, pageSize: 12, size: '50' })).totalItems, 1);
+  assert.deepEqual(await storage.listAvailableSizes(), ['30', '42', '43', '50']);
   assert.equal((await storage.listProductsByIds([product.id, pageProducts[0].id])).length, 2);
   const deletedProduct = await storage.deleteProduct(product.id);
   assert.equal(deletedProduct.id, product.id);

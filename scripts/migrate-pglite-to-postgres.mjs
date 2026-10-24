@@ -66,10 +66,10 @@ async function insertSnapshot(client, snapshot) {
   }
 
   await client.query(
-    `INSERT INTO store_settings (id,phone,exchange_policy,privacy_policy,delivery,hero_image,hero_mobile_image,hero_title,hero_subtitle,telegram_chat_id,meta_pixel_id,updated_at)
-     VALUES (1,$1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,now())
-     ON CONFLICT (id) DO UPDATE SET phone=EXCLUDED.phone,exchange_policy=EXCLUDED.exchange_policy,privacy_policy=EXCLUDED.privacy_policy,delivery=EXCLUDED.delivery,hero_image=EXCLUDED.hero_image,hero_mobile_image=EXCLUDED.hero_mobile_image,hero_title=EXCLUDED.hero_title,hero_subtitle=EXCLUDED.hero_subtitle,telegram_chat_id=EXCLUDED.telegram_chat_id,meta_pixel_id=EXCLUDED.meta_pixel_id,updated_at=now()`,
-    [snapshot.settings.phone, snapshot.settings.exchangePolicy, snapshot.settings.privacyPolicy, JSON.stringify(snapshot.settings.delivery), snapshot.settings.heroImage, snapshot.settings.heroMobileImage, snapshot.settings.heroTitle, snapshot.settings.heroSubtitle, snapshot.settings.telegramChatId || '', snapshot.settings.metaPixelId || '']
+    `INSERT INTO store_settings (id,phone,exchange_policy,privacy_policy,delivery,delivery_order,hero_image,hero_mobile_image,hero_title,hero_subtitle,telegram_chat_id,meta_pixel_id,updated_at)
+     VALUES (1,$1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8,$9,$10,$11,now())
+     ON CONFLICT (id) DO UPDATE SET phone=EXCLUDED.phone,exchange_policy=EXCLUDED.exchange_policy,privacy_policy=EXCLUDED.privacy_policy,delivery=EXCLUDED.delivery,delivery_order=EXCLUDED.delivery_order,hero_image=EXCLUDED.hero_image,hero_mobile_image=EXCLUDED.hero_mobile_image,hero_title=EXCLUDED.hero_title,hero_subtitle=EXCLUDED.hero_subtitle,telegram_chat_id=EXCLUDED.telegram_chat_id,meta_pixel_id=EXCLUDED.meta_pixel_id,updated_at=now()`,
+    [snapshot.settings.phone, snapshot.settings.exchangePolicy, snapshot.settings.privacyPolicy, JSON.stringify(snapshot.settings.delivery), JSON.stringify(snapshot.settings.deliveryOrder || Object.keys(snapshot.settings.delivery || {})), snapshot.settings.heroImage, snapshot.settings.heroMobileImage, snapshot.settings.heroTitle, snapshot.settings.heroSubtitle, snapshot.settings.telegramChatId || '', snapshot.settings.metaPixelId || '']
   );
 
   for (const customer of snapshot.customers) {

@@ -275,7 +275,7 @@ const server = http.createServer(async (req, res) => {
       const page = positiveInt(url.searchParams.get('page') || 1, 100000), query = clean(url.searchParams.get('q'), 80), size = clean(url.searchParams.get('size'), 2);
       if (!page || (size && (!/^\d{2}$/.test(size) || Number(size) < 20 || Number(size) > 50))) return fail(res, 400, 'صفحة أو مقاس غير صالح');
       const [catalog, settings, availableSizes] = await Promise.all([storage.listCatalogPage({ page, pageSize: 12, query, size }), storage.getSettings(), storage.listAvailableSizes()]);
-      return send(res, 200, { products: catalog.products.map(productForPublic), preview: process.env.DEMO_PREVIEW === '1' && catalog.totalItems === 0 && !query && !size, availableSizes, pagination: { page: catalog.page, pageSize: catalog.pageSize, totalItems: catalog.totalItems, totalPages: catalog.totalPages }, settings: { phone: settings.phone, exchangePolicy: settings.exchangePolicy, privacyPolicy: settings.privacyPolicy, delivery: settings.delivery, heroImage: settings.heroImage || '', heroMobileImage: settings.heroMobileImage || '', heroTitle: settings.heroTitle || '', heroSubtitle: settings.heroSubtitle || '', metaPixelId: settings.metaPixelId || '' } });
+      return send(res, 200, { products: catalog.products.map(productForPublic), preview: process.env.DEMO_PREVIEW === '1' && catalog.totalItems === 0 && !query && !size, availableSizes, pagination: { page: catalog.page, pageSize: catalog.pageSize, totalItems: catalog.totalItems, totalPages: catalog.totalPages }, settings: { phone: settings.phone, exchangePolicy: settings.exchangePolicy, privacyPolicy: settings.privacyPolicy, delivery: settings.delivery, deliveryOrder: settings.deliveryOrder || [], heroImage: settings.heroImage || '', heroMobileImage: settings.heroMobileImage || '', heroTitle: settings.heroTitle || '', heroSubtitle: settings.heroSubtitle || '', metaPixelId: settings.metaPixelId || '' } });
     }
     if (pathname === '/api/cart-products' && req.method === 'POST') {
       if (limited(req, 'cart-products', 240, 3600000)) return fail(res, 429, 'محاولات كثيرة');
@@ -488,13 +488,20 @@ const server = http.createServer(async (req, res) => {
           const name = clean(city, 80), amount = positiveInt(fee, 10000);
           if (!name || amount === null) return fail(res, 400, 'أسعار التوصيل غير صالحة'); delivery[name] = amount;
         }
+        const deliveryOrder = [], deliverySeen = new Set();
+        for (const value of Array.isArray(input.deliveryOrder) ? input.deliveryOrder : []) {
+          const city = clean(value, 80);
+          if (!city || !Object.prototype.hasOwnProperty.call(delivery, city) || deliverySeen.has(city)) return fail(res, 400, 'ترتيب المدن غير صالح');
+          deliverySeen.add(city); deliveryOrder.push(city);
+        }
+        for (const city of Object.keys(delivery)) if (!deliverySeen.has(city)) deliveryOrder.push(city);
         const telegramChatId = clean(input.telegramChatId, 80);
         if (!validTelegramChatId(telegramChatId)) return fail(res, 400, 'وجهة تيليجرام غير صالحة. استخدم Chat ID رقميًا أو @username');
         const metaPixelId = clean(input.metaPixelId, 30);
         if (metaPixelId && !/^\d{5,30}$/.test(metaPixelId)) return fail(res, 400, 'معرّف Meta Pixel يجب أن يحتوي أرقامًا فقط');
         const currentSettings = await storage.getSettings();
         if (metaPixelId !== currentSettings.metaPixelId && !hasSensitiveAccess(req, person)) return fail(res, 403, 'أدخل رمز الإدارة من زر «تعديل» لتغيير Meta Pixel');
-        const updated = { phone: clean(input.phone, 50), exchangePolicy: clean(input.exchangePolicy, 3000), privacyPolicy: clean(input.privacyPolicy, 5000), delivery, heroImage, heroMobileImage, heroTitle: clean(input.heroTitle, 100), heroSubtitle: clean(input.heroSubtitle, 240), telegramChatId, metaPixelId };
+        const updated = { phone: clean(input.phone, 50), exchangePolicy: clean(input.exchangePolicy, 3000), privacyPolicy: clean(input.privacyPolicy, 5000), delivery, deliveryOrder, heroImage, heroMobileImage, heroTitle: clean(input.heroTitle, 100), heroSubtitle: clean(input.heroSubtitle, 240), telegramChatId, metaPixelId };
         await storage.saveSettings(updated); return send(res, 200, updated);
       }
     }

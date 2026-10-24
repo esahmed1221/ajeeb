@@ -315,16 +315,39 @@ function renderStaff() {
   $('staffList').querySelectorAll('[data-edit-staff]').forEach(b => b.onclick = () => openStaff(db.staff.find(s => s.id === b.dataset.editStaff)));
 }
 function settingsPreview(id, url) { $(id).innerHTML = url ? `<img src="${esc(url)}" alt="معاينة الصورة">` : '<span>ما فيش صورة مضافة</span>'; }
+function refreshDeliveryOrderControls() {
+  const rows = [...$('deliveryRows').querySelectorAll('.delivery-row')];
+  rows.forEach((row, index) => {
+    const input = row.querySelector('[data-delivery-order]'), up = row.querySelector('[data-delivery-up]'), down = row.querySelector('[data-delivery-down]');
+    input.value = index + 1; input.max = rows.length;
+    up.disabled = !can('settings.manage') || index === 0;
+    down.disabled = !can('settings.manage') || index === rows.length - 1;
+  });
+}
+function moveDeliveryRow(row, requestedIndex) {
+  const rows = [...$('deliveryRows').querySelectorAll('.delivery-row')], currentIndex = rows.indexOf(row);
+  if (currentIndex < 0) return;
+  const targetIndex = Math.max(0, Math.min(rows.length - 1, Math.trunc(Number(requestedIndex)) || 0));
+  rows.splice(currentIndex, 1); rows.splice(targetIndex, 0, row);
+  rows.forEach(item => $('deliveryRows').append(item));
+  refreshDeliveryOrderControls();
+}
 function addDeliveryRow(city = '', fee = '') {
   const row = document.createElement('div'); row.className = 'delivery-row';
-  row.innerHTML = `<label>المدينة<input data-delivery-city maxlength="80" placeholder="مثال: طرابلس" value="${esc(city)}"></label><label>السعر بالدينار<input data-delivery-fee type="number" inputmode="numeric" min="0" max="10000" step="1" placeholder="0" value="${fee === '' ? '' : esc(fee)}"></label><button class="delivery-remove" type="button" aria-label="حذف المدينة">حذف</button>`;
-  row.querySelector('.delivery-remove').onclick = () => { row.remove(); if (!$('deliveryRows').children.length) addDeliveryRow(); };
+  row.innerHTML = `<label>المدينة<input data-delivery-city maxlength="80" placeholder="مثال: طرابلس" value="${esc(city)}"></label><label>السعر بالدينار<input data-delivery-fee type="number" inputmode="numeric" min="0" max="10000" step="1" placeholder="0" value="${fee === '' ? '' : esc(fee)}"></label><div class="delivery-order-control"><span>الترتيب</span><div><button data-delivery-up type="button" title="نقل للأعلى" aria-label="نقل المدينة للأعلى">↑</button><input data-delivery-order type="number" inputmode="numeric" min="1" step="1" aria-label="ترتيب المدينة"><button data-delivery-down type="button" title="نقل للأسفل" aria-label="نقل المدينة للأسفل">↓</button></div></div><button class="delivery-remove" type="button" aria-label="حذف المدينة">حذف</button>`;
+  row.querySelector('.delivery-remove').onclick = () => { row.remove(); if (!$('deliveryRows').children.length) addDeliveryRow(); else refreshDeliveryOrderControls(); };
+  row.querySelector('[data-delivery-up]').onclick = () => moveDeliveryRow(row, [...$('deliveryRows').children].indexOf(row) - 1);
+  row.querySelector('[data-delivery-down]').onclick = () => moveDeliveryRow(row, [...$('deliveryRows').children].indexOf(row) + 1);
+  row.querySelector('[data-delivery-order]').onchange = event => moveDeliveryRow(row, Number(event.currentTarget.value) - 1);
   row.querySelectorAll('input,button').forEach(x => x.disabled = !can('settings.manage'));
-  $('deliveryRows').append(row);
+  $('deliveryRows').append(row); refreshDeliveryOrderControls();
 }
-function renderDeliveryRows(delivery = {}) {
+function renderDeliveryRows(delivery = {}, deliveryOrder = []) {
   $('deliveryRows').innerHTML = '';
-  const rows = Object.entries(delivery); (rows.length ? rows : [['', '']]).forEach(([city, fee]) => addDeliveryRow(city, fee));
+  const cities = [], seen = new Set();
+  for (const city of Array.isArray(deliveryOrder) ? deliveryOrder : []) if (Object.prototype.hasOwnProperty.call(delivery, city) && !seen.has(city)) { seen.add(city); cities.push(city); }
+  for (const city of Object.keys(delivery)) if (!seen.has(city)) cities.push(city);
+  const rows = cities.map(city => [city, delivery[city]]); (rows.length ? rows : [['', '']]).forEach(([city, fee]) => addDeliveryRow(city, fee));
 }
 function renderIntegrationApiKey() {
   const owner = Boolean(db.user?.owner), key = db.integrationApiKey;
@@ -349,7 +372,7 @@ function renderSettings() {
   $('telegramChatId').value = db.settings.telegramChatId || '';
   $('metaPixelId').value = db.settings.metaPixelId || '';
   $('telegramStatus').textContent = db.telegramBotConfigured ? 'رمز بوت تيليجرام مضبوط على السيرفر.' : 'رمز بوت تيليجرام غير مضبوط على السيرفر بعد؛ لن تُرسل إشعارات حتى تتم إضافته.';
-  renderDeliveryRows(db.settings.delivery || {});
+  renderDeliveryRows(db.settings.delivery || {}, db.settings.deliveryOrder || []);
   $('heroTitle').value = db.settings.heroTitle || ''; $('heroSubtitle').value = db.settings.heroSubtitle || '';
   heroImages = { heroImage: db.settings.heroImage || '', heroMobileImage: db.settings.heroMobileImage || '' };
   settingsPreview('heroImagePreview', heroImages.heroImage); settingsPreview('heroMobileImagePreview', heroImages.heroMobileImage);
@@ -517,13 +540,13 @@ async function saveSettings(e) {
   try {
     const metaPixelChanged = $('metaPixelId').value.trim() !== String(db.settings.metaPixelId || '');
     if (metaPixelChanged && !sensitiveAccessIsValid()) { openSensitiveUnlock(); throw new Error('أدخل رمز الإدارة ثم اضغط حفظ مرة أخرى'); }
-    const delivery = {};
+    const delivery = {}, deliveryOrder = [];
     for (const row of $('deliveryRows').querySelectorAll('.delivery-row')) {
       const city = row.querySelector('[data-delivery-city]').value.trim(), feeText = row.querySelector('[data-delivery-fee]').value.trim();
       if (!city && !feeText) continue;
       if (!city || feeText === '' || !Number.isSafeInteger(Number(feeText)) || Number(feeText) < 0) throw new Error('أكمل اسم المدينة وسعر التوصيل في كل صف');
       if (delivery[city] !== undefined) throw new Error(`المدينة «${city}» مضافة مرتين`);
-      delivery[city] = Number(feeText);
+      delivery[city] = Number(feeText); deliveryOrder.push(city);
     }
     for (const [inputId, setting] of [['heroImageFile', 'heroImage'], ['heroMobileImageFile', 'heroMobileImage']]) {
       const file = $(inputId).files[0]; if (!file) continue;
@@ -531,7 +554,7 @@ async function saveSettings(e) {
       heroImages[setting] = await uploadImage(file, 'homepage');
     }
     $('settingsNotice').textContent = 'جاري حفظ الإعدادات...'; $('settingsNotice').classList.remove('hidden');
-    await api('/api/admin/settings', { method: 'PUT', headers: sensitiveHeaders(), body: JSON.stringify({ phone: $('storePhone').value, exchangePolicy: $('policyText').value, privacyPolicy: $('privacyText').value, delivery, ...heroImages, heroTitle: $('heroTitle').value, heroSubtitle: $('heroSubtitle').value, telegramChatId: $('telegramChatId').value, metaPixelId: $('metaPixelId').value }) });
+    await api('/api/admin/settings', { method: 'PUT', headers: sensitiveHeaders(), body: JSON.stringify({ phone: $('storePhone').value, exchangePolicy: $('policyText').value, privacyPolicy: $('privacyText').value, delivery, deliveryOrder, ...heroImages, heroTitle: $('heroTitle').value, heroSubtitle: $('heroSubtitle').value, telegramChatId: $('telegramChatId').value, metaPixelId: $('metaPixelId').value }) });
     await load(); $('settingsNotice').textContent = 'تم حفظ الإعدادات بنجاح.'; $('settingsNotice').classList.remove('hidden');
   } catch (err) { error('settingsError', err.message); $('settingsNotice').classList.add('hidden'); } finally { button.disabled = false; }
 }

@@ -8,7 +8,7 @@ const demo = [
   { id: 'demo2', code: 'SH 1989', name: 'حذاء كاجوال أبيض', price: 115, oldPrice: 190, sizes: { 37: 2, 38: 2, 39: 1, 40: 1 }, images: [], demo: true },
   { id: 'demo3', code: 'SH 1778', name: 'حذاء جري أسود', price: 145, oldPrice: 240, sizes: { 41: 1, 42: 2, 43: 1, 44: 1 }, images: [], demo: true }
 ];
-let products = [], availableSizes = [], settings = { delivery: {}, phone: '', exchangePolicy: '', metaPixelId: '' }, cart = [], selectedSize = '', activeSize = '', query = '';
+let products = [], availableSizes = [], settings = { delivery: {}, deliveryOrder: [], phone: '', exchangePolicy: '', metaPixelId: '' }, cart = [], selectedSize = '', activeSize = '', query = '';
 let pagination = { page: 1, pageSize: 12, totalItems: 0, totalPages: 0 }, catalogRequest = 0, searchTimer;
 let checkoutEventSignature = '';
 const selectedCardSizes = new Map();
@@ -131,7 +131,9 @@ function showCheckout({ updateHistory = true } = {}) {
   syncPageTitle();
   const checkout = pixelCart(), signature = JSON.stringify(checkout.contents);
   if (signature && signature !== checkoutEventSignature && trackMetaEvent('InitiateCheckout', checkout)) checkoutEventSignature = signature;
-  const cities = Object.keys(settings.delivery || {}).sort((a, b) => a.localeCompare(b, 'ar'));
+  const delivery = settings.delivery || {}, availableCities = Object.keys(delivery), seenCities = new Set();
+  const cities = (Array.isArray(settings.deliveryOrder) ? settings.deliveryOrder : []).filter(city => Object.prototype.hasOwnProperty.call(delivery, city) && !seenCities.has(city) && seenCities.add(city));
+  for (const city of availableCities.sort((a, b) => a.localeCompare(b, 'ar'))) if (!seenCities.has(city)) cities.push(city);
   $('city').innerHTML = `<option value="">اختر المدينة</option>${cities.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}`;
   $('orderError').classList.toggle('hidden', cities.length > 0);
   $('orderError').textContent = cities.length ? '' : 'الطلب غير متاح حتى يحدد المتجر أسعار التوصيل.';

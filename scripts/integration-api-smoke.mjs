@@ -31,7 +31,7 @@ async function waitForServer() {
 
 try {
   const storage = await createStorage({ dataDir: tempDir });
-  await storage.saveSettings({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10 }, heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '', metaPixelId: '123456789012345' });
+  await storage.saveSettings({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10, بنغازي: 15 }, deliveryOrder: ['بنغازي', 'طرابلس'], heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '', metaPixelId: '123456789012345' });
   const product = { id: crypto.randomUUID(), code: 'API-TEST', name: 'منتج API', price: 90, oldPrice: 0, active: true, updatedAt: new Date().toISOString(), images: [], sizes: { 30: 2, 42: 2, 50: 0 } };
   await storage.saveProduct(product);
   const order = await storage.createOrder({ id: crypto.randomUUID(), customer: { name: 'عميل API', phone: '0911111111', city: 'طرابلس', address: 'عنوان اختبار التكامل', notes: '' }, lines: [{ productId: product.id, size: '42', qty: 1 }], createdAt: new Date().toISOString() });
@@ -46,6 +46,7 @@ try {
   assert.match(storefront.headers.get('content-security-policy') || '', /connect-src[^;]*https:\/\/www\.facebook\.com/);
   const catalog = await fetch(`${origin}/api/catalog?page=1`).then(response => response.json());
   assert.equal(catalog.settings.metaPixelId, '123456789012345');
+  assert.deepEqual(catalog.settings.deliveryOrder, ['بنغازي', 'طرابلس']);
   assert.deepEqual(catalog.availableSizes, ['30', '42']);
   assert.deepEqual(catalog.products[0].sizes, { 30: 2, 42: 1 });
   assert.equal(Object.hasOwn(catalog.products[0].sizes, '50'), false);
@@ -70,9 +71,10 @@ try {
   assert.ok(sensitive.expiresAt > Date.now());
   const protectedHeaders = { cookie, origin, 'content-type': 'application/json', 'x-ajeeb-sensitive-access': sensitive.token };
 
-  const changedSettings = { phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10 }, heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '', metaPixelId: '987654321098765' };
+  const changedSettings = { phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10, بنغازي: 15 }, deliveryOrder: ['طرابلس', 'بنغازي'], heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '', metaPixelId: '987654321098765' };
   assert.equal((await fetch(`${origin}/api/admin/settings`, { method: 'PUT', headers: { cookie, origin, 'content-type': 'application/json' }, body: JSON.stringify(changedSettings) })).status, 403);
   assert.equal((await fetch(`${origin}/api/admin/settings`, { method: 'PUT', headers: protectedHeaders, body: JSON.stringify(changedSettings) })).status, 200);
+  assert.deepEqual((await fetch(`${origin}/api/catalog?page=1`).then(response => response.json())).settings.deliveryOrder, ['طرابلس', 'بنغازي']);
 
   const generated = await fetch(`${origin}/api/admin/integration-keys/orders`, { method: 'POST', headers: protectedHeaders, body: '{}' });
   assert.equal(generated.status, 201);

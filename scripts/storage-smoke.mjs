@@ -16,9 +16,10 @@ let storage;
 let legacyStorage;
 try {
   storage = await createStorage({ dataDir: tempDir });
-  await storage.saveSettings({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10 }, heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '-1001234567890', metaPixelId: '123456789012345' });
+  await storage.saveSettings({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: { طرابلس: 10, بنغازي: 15 }, deliveryOrder: ['بنغازي', 'طرابلس'], heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '-1001234567890', metaPixelId: '123456789012345' });
   assert.equal((await storage.getSettings()).telegramChatId, '-1001234567890');
   assert.equal((await storage.getSettings()).metaPixelId, '123456789012345');
+  assert.deepEqual((await storage.getSettings()).deliveryOrder, ['بنغازي', 'طرابلس']);
 
   const product = { id: crypto.randomUUID(), code: 'TEST-1', name: 'منتج اختبار', price: 120, oldPrice: 150, active: true, updatedAt: new Date().toISOString(), images: ['/products/test.png'], sizes: { 30: 2, 42: 3, 50: 1 } };
   await storage.saveProduct(product);

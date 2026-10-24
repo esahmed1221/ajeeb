@@ -2,12 +2,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const emptySettings = () => ({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: {}, heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '', metaPixelId: '' });
+const emptySettings = () => ({ phone: '', exchangePolicy: '', privacyPolicy: '', delivery: {}, deliveryOrder: [], heroImage: '', heroMobileImage: '', heroTitle: '', heroSubtitle: '', telegramChatId: '', metaPixelId: '' });
+function normalizeDeliveryOrder(delivery = {}, requestedOrder = []) {
+  const cities = Object.keys(delivery || {}), available = new Set(cities), seen = new Set(), ordered = [];
+  for (const value of Array.isArray(requestedOrder) ? requestedOrder : []) {
+    const city = String(value ?? '');
+    if (available.has(city) && !seen.has(city)) { seen.add(city); ordered.push(city); }
+  }
+  for (const city of cities) if (!seen.has(city)) ordered.push(city);
+  return ordered;
+}
 const normalizeLegacy = value => ({
   products: Array.isArray(value?.products) ? value.products : [],
   orders: Array.isArray(value?.orders) ? value.orders : [],
   staff: Array.isArray(value?.staff) ? value.staff : [],
-  settings: { ...emptySettings(), ...(value?.settings || {}), delivery: value?.settings?.delivery || {} }
+  settings: { ...emptySettings(), ...(value?.settings || {}), delivery: value?.settings?.delivery || {}, deliveryOrder: normalizeDeliveryOrder(value?.settings?.delivery || {}, value?.settings?.deliveryOrder) }
 });
 function readJson(dataFile) { return fs.existsSync(dataFile) ? normalizeLegacy(JSON.parse(fs.readFileSync(dataFile, 'utf8'))) : normalizeLegacy(); }
 function jsonValue(value, fallback) {
@@ -61,7 +70,8 @@ async function createSchema(driver) {
     CREATE TABLE IF NOT EXISTS product_images (product_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE, position smallint NOT NULL CHECK (position BETWEEN 0 AND 5), path text NOT NULL, PRIMARY KEY (product_id, position));
     CREATE TABLE IF NOT EXISTS inventory (product_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE, size smallint NOT NULL CHECK (size BETWEEN 20 AND 50), stock integer NOT NULL CHECK (stock >= 0), PRIMARY KEY (product_id, size));
     CREATE TABLE IF NOT EXISTS staff (id uuid PRIMARY KEY, name varchar(80) NOT NULL, username varchar(32) NOT NULL UNIQUE, active boolean NOT NULL DEFAULT true, permissions jsonb NOT NULL DEFAULT '[]'::jsonb, password_salt text NOT NULL, password_hash text NOT NULL, session_version integer NOT NULL DEFAULT 1, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL);
-    CREATE TABLE IF NOT EXISTS store_settings (id smallint PRIMARY KEY CHECK (id = 1), phone varchar(50) NOT NULL DEFAULT '', exchange_policy text NOT NULL DEFAULT '', privacy_policy text NOT NULL DEFAULT '', delivery jsonb NOT NULL DEFAULT '{}'::jsonb, hero_image text NOT NULL DEFAULT '', hero_mobile_image text NOT NULL DEFAULT '', hero_title varchar(100) NOT NULL DEFAULT '', hero_subtitle varchar(240) NOT NULL DEFAULT '', telegram_chat_id text NOT NULL DEFAULT '', meta_pixel_id varchar(30) NOT NULL DEFAULT '', updated_at timestamptz NOT NULL DEFAULT now());
+    CREATE TABLE IF NOT EXISTS store_settings (id smallint PRIMARY KEY CHECK (id = 1), phone varchar(50) NOT NULL DEFAULT '', exchange_policy text NOT NULL DEFAULT '', privacy_policy text NOT NULL DEFAULT '', delivery jsonb NOT NULL DEFAULT '{}'::jsonb, delivery_order jsonb NOT NULL DEFAULT '[]'::jsonb, hero_image text NOT NULL DEFAULT '', hero_mobile_image text NOT NULL DEFAULT '', hero_title varchar(100) NOT NULL DEFAULT '', hero_subtitle varchar(240) NOT NULL DEFAULT '', telegram_chat_id text NOT NULL DEFAULT '', meta_pixel_id varchar(30) NOT NULL DEFAULT '', updated_at timestamptz NOT NULL DEFAULT now());
+    ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS delivery_order jsonb NOT NULL DEFAULT '[]'::jsonb;
     ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS telegram_chat_id text NOT NULL DEFAULT '';
     ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS meta_pixel_id varchar(30) NOT NULL DEFAULT '';
     CREATE TABLE IF NOT EXISTS customers (id uuid PRIMARY KEY, name varchar(100) NOT NULL, phone varchar(25) NOT NULL, phone_key varchar(64) NOT NULL UNIQUE, city varchar(80) NOT NULL, address varchar(300) NOT NULL, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL);
@@ -100,7 +110,8 @@ async function insertStaff(tx, person) {
   await tx.query(`INSERT INTO staff (id,name,username,active,permissions,password_salt,password_hash,session_version,created_at,updated_at) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,username=EXCLUDED.username,active=EXCLUDED.active,permissions=EXCLUDED.permissions,password_salt=EXCLUDED.password_salt,password_hash=EXCLUDED.password_hash,session_version=EXCLUDED.session_version,updated_at=EXCLUDED.updated_at`, [person.id, person.name, person.username, person.active, JSON.stringify(person.permissions), person.salt, person.hash, person.sessionVersion, person.createdAt, person.updatedAt]);
 }
 async function upsertSettings(tx, settings) {
-  await tx.query(`INSERT INTO store_settings (id,phone,exchange_policy,privacy_policy,delivery,hero_image,hero_mobile_image,hero_title,hero_subtitle,telegram_chat_id,meta_pixel_id,updated_at) VALUES (1,$1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,now()) ON CONFLICT (id) DO UPDATE SET phone=EXCLUDED.phone,exchange_policy=EXCLUDED.exchange_policy,privacy_policy=EXCLUDED.privacy_policy,delivery=EXCLUDED.delivery,hero_image=EXCLUDED.hero_image,hero_mobile_image=EXCLUDED.hero_mobile_image,hero_title=EXCLUDED.hero_title,hero_subtitle=EXCLUDED.hero_subtitle,telegram_chat_id=EXCLUDED.telegram_chat_id,meta_pixel_id=EXCLUDED.meta_pixel_id,updated_at=now()`, [settings.phone, settings.exchangePolicy, settings.privacyPolicy, JSON.stringify(settings.delivery), settings.heroImage, settings.heroMobileImage, settings.heroTitle, settings.heroSubtitle, settings.telegramChatId || '', settings.metaPixelId || '']);
+  const deliveryOrder = normalizeDeliveryOrder(settings.delivery, settings.deliveryOrder);
+  await tx.query(`INSERT INTO store_settings (id,phone,exchange_policy,privacy_policy,delivery,delivery_order,hero_image,hero_mobile_image,hero_title,hero_subtitle,telegram_chat_id,meta_pixel_id,updated_at) VALUES (1,$1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8,$9,$10,$11,now()) ON CONFLICT (id) DO UPDATE SET phone=EXCLUDED.phone,exchange_policy=EXCLUDED.exchange_policy,privacy_policy=EXCLUDED.privacy_policy,delivery=EXCLUDED.delivery,delivery_order=EXCLUDED.delivery_order,hero_image=EXCLUDED.hero_image,hero_mobile_image=EXCLUDED.hero_mobile_image,hero_title=EXCLUDED.hero_title,hero_subtitle=EXCLUDED.hero_subtitle,telegram_chat_id=EXCLUDED.telegram_chat_id,meta_pixel_id=EXCLUDED.meta_pixel_id,updated_at=now()`, [settings.phone, settings.exchangePolicy, settings.privacyPolicy, JSON.stringify(settings.delivery), JSON.stringify(deliveryOrder), settings.heroImage, settings.heroMobileImage, settings.heroTitle, settings.heroSubtitle, settings.telegramChatId || '', settings.metaPixelId || '']);
 }
 
 async function migrateLegacy(driver, dataFile) {
@@ -225,6 +236,20 @@ async function migrateProductOrdering(driver) {
   });
 }
 
+async function migrateDeliveryOrdering(driver) {
+  const already = await driver.query('SELECT 1 FROM schema_migrations WHERE version=11');
+  if (already.rowCount) return;
+  await driver.transaction(async tx => {
+    await tx.query("ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS delivery_order jsonb NOT NULL DEFAULT '[]'::jsonb");
+    const result = await tx.query('SELECT delivery,delivery_order FROM store_settings WHERE id=1');
+    if (result.rows[0]) {
+      const delivery = jsonValue(result.rows[0].delivery, {}), currentOrder = jsonValue(result.rows[0].delivery_order, []);
+      await tx.query('UPDATE store_settings SET delivery_order=$1::jsonb WHERE id=1', [JSON.stringify(normalizeDeliveryOrder(delivery, currentOrder))]);
+    }
+    await tx.query('INSERT INTO schema_migrations (version) VALUES (11)');
+  });
+}
+
 const productSelect = `
   SELECT p.*,
     COALESCE((SELECT jsonb_agg(pi.path ORDER BY pi.position) FROM product_images pi WHERE pi.product_id=p.id), '[]'::jsonb) AS images,
@@ -243,7 +268,9 @@ function mapStaff(row) {
   return { id: row.id, name: row.name, username: row.username, active: row.active, permissions: jsonValue(row.permissions, []), salt: row.password_salt, hash: row.password_hash, sessionVersion: Number(row.session_version), createdAt: new Date(row.created_at).toISOString(), updatedAt: new Date(row.updated_at).toISOString() };
 }
 function mapSettings(row) {
-  return row ? { phone: row.phone, exchangePolicy: row.exchange_policy, privacyPolicy: row.privacy_policy, delivery: jsonValue(row.delivery, {}), heroImage: row.hero_image, heroMobileImage: row.hero_mobile_image, heroTitle: row.hero_title, heroSubtitle: row.hero_subtitle, telegramChatId: row.telegram_chat_id || '', metaPixelId: row.meta_pixel_id || '' } : emptySettings();
+  if (!row) return emptySettings();
+  const delivery = jsonValue(row.delivery, {});
+  return { phone: row.phone, exchangePolicy: row.exchange_policy, privacyPolicy: row.privacy_policy, delivery, deliveryOrder: normalizeDeliveryOrder(delivery, jsonValue(row.delivery_order, [])), heroImage: row.hero_image, heroMobileImage: row.hero_mobile_image, heroTitle: row.hero_title, heroSubtitle: row.hero_subtitle, telegramChatId: row.telegram_chat_id || '', metaPixelId: row.meta_pixel_id || '' };
 }
 function mapOrder(row) {
   const items = jsonValue(row.items, []).map(item => ({ productId: item.productId, code: item.code, name: item.name, image: item.image || '', size: String(item.size), qty: Number(item.qty), price: Number(item.price) }));
@@ -396,7 +423,7 @@ async function getSettings(driver) {
 export async function createStorage({ dataDir, databaseUrl, databaseConfig }) {
   fs.mkdirSync(dataDir, { recursive: true });
   const driver = await createDriver(databaseUrl, databaseConfig, path.join(dataDir, 'postgres'));
-  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver); await migrateOrderNumberFloor(driver); await migrateOrderItemImages(driver); await migrateIntegrationApiKeys(driver); await migrateGenericOrderApiKey(driver); await migrateMetaPixelSettings(driver); await migrateProductOrdering(driver);
+  await createSchema(driver); await migrateLegacy(driver, path.join(dataDir, 'store.json')); await migrateCustomers(driver); await migrateTelegramSettings(driver); await migrateSequentialOrderNumbers(driver); await migrateOrderNumberFloor(driver); await migrateOrderItemImages(driver); await migrateIntegrationApiKeys(driver); await migrateGenericOrderApiKey(driver); await migrateMetaPixelSettings(driver); await migrateProductOrdering(driver); await migrateDeliveryOrdering(driver);
   return {
     kind: driver.kind,
     listProducts: ({ activeOnly = false } = {}) => listProducts(driver, activeOnly),

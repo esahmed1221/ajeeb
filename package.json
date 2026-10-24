@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check storage.mjs && node --check telegram.mjs && node --check public/store.js && node --check public/success.js && node --check public/meta-pixel.js && node --check public/admin.js && node --check scripts/backup.mjs && node --check scripts/db-check.mjs && node --check scripts/migrate-pglite-to-postgres.mjs && node --check scripts/telegram-smoke.mjs && node --check scripts/meta-pixel-smoke.mjs && node --check scripts/integration-api-smoke.mjs && node --check scripts/meta-feed-smoke.mjs",
+    "check": "node --check server.mjs && node --check storage.mjs && node --check telegram.mjs && node --check public/store.js && node --check public/success.js && node --check public/meta-pixel.js && node --check public/inventory-assistant.js && node --check public/admin.js && node --check scripts/backup.mjs && node --check scripts/db-check.mjs && node --check scripts/migrate-pglite-to-postgres.mjs && node --check scripts/telegram-smoke.mjs && node --check scripts/meta-pixel-smoke.mjs && node --check scripts/inventory-assistant-smoke.mjs && node --check scripts/integration-api-smoke.mjs && node --check scripts/meta-feed-smoke.mjs",
     "test:storage": "node scripts/storage-smoke.mjs",
     "test:telegram": "node scripts/telegram-smoke.mjs",
     "test:pixel": "node scripts/meta-pixel-smoke.mjs",
+    "test:assistant": "node scripts/inventory-assistant-smoke.mjs",
     "test:integration": "node scripts/integration-api-smoke.mjs",
     "test:feed": "node scripts/meta-feed-smoke.mjs",
-    "test": "npm run check && npm run test:storage && npm run test:telegram && npm run test:pixel && npm run test:integration && npm run test:feed",
+    "test": "npm run check && npm run test:storage && npm run test:telegram && npm run test:pixel && npm run test:assistant && npm run test:integration && npm run test:feed",
     "db:check": "node scripts/db-check.mjs",
     "db:migrate:docker": "node scripts/migrate-pglite-to-postgres.mjs",
     "backup": "node scripts/backup.mjs"

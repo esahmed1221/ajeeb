@@ -1,3 +1,5 @@
+import { answerInventoryQuestion } from './inventory-assistant.js?v=1';
+
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => `${Number(n || 0).toLocaleString('ar-LY')} د.ل`;
@@ -66,7 +68,7 @@ async function load() {
   if (!Array.isArray(db.customers)) db.customers = [];
   $('loginBox').classList.add('hidden'); $('dashboard').classList.remove('hidden'); $('logout').classList.remove('hidden');
   $('greeting').textContent = db.user.name; $('accountLabel').textContent = db.user.owner ? 'حساب المالك' : `حساب ${db.user.name}`;
-  const access = { overviewTab: can('orders.view'), ordersTab: can('orders.view'), customersTab: can('orders.view'), productsTab: can('products.view'), staffTab: db.user.owner, settingsTab: can('settings.view') };
+  const access = { overviewTab: can('orders.view'), ordersTab: can('orders.view'), customersTab: can('orders.view'), productsTab: can('products.view'), assistantTab: can('products.view'), staffTab: db.user.owner, settingsTab: can('settings.view') };
   document.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('hidden', !access[x.dataset.tab]));
   $('noAccess').classList.toggle('hidden', Object.values(access).some(Boolean));
   const current = document.querySelector('[data-tab].active');
@@ -146,6 +148,29 @@ function renderProducts() {
     catch (e) { button.disabled = false; alert(e.message); }
   });
 }
+function assistantWelcome() {
+  return '<article class="assistant-message bot"><span class="assistant-avatar" aria-hidden="true">ع</span><div class="assistant-bubble"><strong>مساعد المخزون</strong><p>اسألني عن أكثر الموديلات في المقاسات أو الكميات، عن مقاس محدد، كود منتج، المخزون المنخفض أو النافد.</p><small>التحليل يتم داخل لوحة الإدارة ولا تُرسل بيانات المتجر إلى خدمة خارجية.</small></div></article>';
+}
+function assistantProductResult(item) {
+  const sizeSummary = item.sizes.length ? item.sizes.map(entry => `<span>${esc(entry.size)} × ${Number(entry.stock)}</span>`).join('') : '<span class="empty-size">بدون مخزون</span>';
+  const focus = item.focusSize ? `<b class="assistant-focus-stock">مقاس ${esc(item.focusSize)}: ${Number(item.focusStock)} قطعة</b>` : `<b>${Number(item.sizeCount)} مقاس • ${Number(item.totalStock)} قطعة</b>`;
+  return `<article class="assistant-product-result"><div class="assistant-product-photo">${item.image ? `<img src="${esc(item.image)}" alt="">` : '<span aria-hidden="true">👟</span>'}</div><div class="assistant-product-copy"><div><strong>${esc(item.name)}</strong><code>${esc(item.code)}</code><em class="${item.active ? 'active' : 'inactive'}">${item.active ? 'ظاهر' : 'مخفي'}</em></div>${focus}<div class="assistant-size-stock">${sizeSummary}</div></div><button type="button" data-assistant-product="${esc(item.id)}">فتح المنتج</button></article>`;
+}
+function bindAssistantProductButtons() {
+  $('assistantMessages').querySelectorAll('[data-assistant-product]').forEach(button => button.onclick = () => {
+    const product = db.products.find(item => item.id === button.dataset.assistantProduct); if (!product) return;
+    $('productSearch').value = product.code; renderProducts(); showTab('productsTab');
+  });
+}
+function askInventoryAssistant(rawQuestion) {
+  const question = String(rawQuestion || '').trim(); if (!question) return;
+  const root = $('assistantMessages');
+  root.insertAdjacentHTML('beforeend', `<article class="assistant-message user"><div class="assistant-bubble"><p>${esc(question)}</p></div></article>`);
+  const answer = answerInventoryQuestion(db.products, question), results = answer.items.length ? `<div class="assistant-results">${answer.items.map(assistantProductResult).join('')}</div>` : '';
+  root.insertAdjacentHTML('beforeend', `<article class="assistant-message bot"><span class="assistant-avatar" aria-hidden="true">ع</span><div class="assistant-bubble"><strong>مساعد المخزون</strong><p>${esc(answer.message)}</p>${answer.detail ? `<small>${esc(answer.detail)}</small>` : ''}${results}</div></article>`);
+  bindAssistantProductButtons(); root.scrollTop = root.scrollHeight;
+}
+function resetInventoryAssistant() { $('assistantMessages').innerHTML = assistantWelcome(); }
 function bindProductDragging(ordered) {
   const list = $('productList'), rows = [...list.querySelectorAll('[data-product-row]')];
   let draggedId = '', touchTargetId = '', touchAfter = false;
@@ -496,6 +521,9 @@ $('todayDay').onclick = () => { $('overviewDate').value = localDay(new Date().to
 $('saveProductOrder').onclick = saveProductOrder;
 $('productSearch').oninput = renderProducts;
 $('clearProductSearch').onclick = () => { $('productSearch').value = ''; renderProducts(); $('productSearch').focus(); };
+$('inventoryAssistantForm').onsubmit = event => { event.preventDefault(); const question = $('inventoryAssistantQuestion').value; $('inventoryAssistantQuestion').value = ''; askInventoryAssistant(question); };
+$('clearAssistant').onclick = resetInventoryAssistant;
+document.querySelectorAll('[data-assistant-question]').forEach(button => button.onclick = () => askInventoryAssistant(button.dataset.assistantQuestion));
 $('newProduct').onclick = () => openEditor(); $('closeEditor').onclick = closeEditor; $('editorOverlay').onclick = closeEditor; $('productForm').onsubmit = saveProduct;
 $('productImages').onchange = () => {
   clearError('productError'); const files = [...$('productImages').files];
@@ -525,4 +553,5 @@ for (const [buttonId, inputId, previewId, setting] of [['removeHeroImage', 'hero
 $('clearFilters').onclick = () => { ['orderSearch', 'statusFilter', 'dateFrom', 'dateTo'].forEach(id => $(id).value = ''); renderOrders(); };
 $('customerSearch').oninput = renderCustomers; $('customerSort').onchange = renderCustomers;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeEditor(); closeStaff(); closeSensitiveUnlock(); } });
+resetInventoryAssistant();
 api('/api/admin/session').then(s => { if (s.loggedIn) load(); else if (!s.configured) error('loginError', 'كلمة مرور الإدارة لم تُجهّز على السيرفر بعد.'); }).catch(() => error('loginError', 'تعذر الاتصال بالسيرفر.'));

@@ -116,12 +116,18 @@ function renderStats() {
 }
 function renderProducts() {
   const ordered = [...db.products].sort((left, right) => Number(right.active) - Number(left.active) || Number(left.sortOrder || 0) - Number(right.sortOrder || 0) || left.id.localeCompare(right.id));
+  const query = $('productSearch').value.trim().toLocaleLowerCase('ar-LY'), terms = query.split(/\s+/).filter(Boolean);
+  const shown = terms.length ? ordered.filter(product => { const searchable = `${product.name || ''} ${product.code || ''}`.toLocaleLowerCase('ar-LY'); return terms.every(term => searchable.includes(term)); }) : ordered;
+  const filtering = terms.length > 0;
   const activeProducts = ordered.filter(product => product.active), activePositions = new Map(activeProducts.map((product, index) => [product.id, index + 1]));
+  $('productSearchCount').textContent = filtering ? `${shown.length} من ${ordered.length} منتج` : `${ordered.length} منتج`;
+  $('clearProductSearch').classList.toggle('hidden', !filtering);
+  $('productSearchMode').classList.toggle('hidden', !filtering);
   $('saveProductOrder').disabled = !productOrderDirty;
   $('productOrderNotice').classList.toggle('hidden', !productOrderDirty);
   if (productOrderDirty) $('productOrderNotice').textContent = 'الترتيب تغيّر ولم يُحفظ بعد.';
-  $('productList').innerHTML = ordered.length ? ordered.map((p, index) => { const activePosition = activePositions.get(p.id), page = activePosition ? Math.ceil(activePosition / 12) : null, minimum = p.active ? 1 : activeProducts.length + 1, maximum = p.active ? activeProducts.length : ordered.length; return `<div class="admin-row product-sort-row" data-product-row="${p.id}"><div>${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="">` : '<span class="empty-img">👟</span>'}</div><div><h3>${esc(p.name)} <span class="status-pill">${p.active ? 'ظاهر' : 'مخفي'}</span></h3><p>${esc(p.code)} • ${money(p.price)} • ${Object.values(p.sizes).reduce((a, b) => a + b, 0)} قطعة${page ? ` • الصفحة ${page}` : ''}</p></div>${can('products.manage') ? `<div class="admin-product-actions"><button type="button" class="product-drag-handle" data-drag-product="${p.id}" draggable="true" aria-label="اسحب لتغيير ترتيب ${esc(p.name)}" title="اسحب المنتج للمكان المطلوب"><span aria-hidden="true">⋮⋮</span><small>سحب</small></button><label class="product-order-field"><span>الترتيب</span><input data-product-order="${p.id}" type="number" inputmode="numeric" min="${minimum}" max="${maximum}" step="1" value="${index + 1}" aria-label="ترتيب ${esc(p.name)}"></label><button data-edit="${p.id}">تعديل</button><button class="product-delete" data-delete-product="${p.id}">حذف نهائي</button></div>` : ''}</div>`; }).join('') : '<p class="empty-list">ما فيش منتجات.</p>';
-  $('productList').querySelectorAll('[data-product-order]').forEach(field => field.onchange = () => {
+  $('productList').innerHTML = shown.length ? shown.map(p => { const index = ordered.findIndex(product => product.id === p.id), activePosition = activePositions.get(p.id), page = activePosition ? Math.ceil(activePosition / 12) : null, minimum = p.active ? 1 : activeProducts.length + 1, maximum = p.active ? activeProducts.length : ordered.length; return `<div class="admin-row product-sort-row" data-product-row="${p.id}"><div>${p.images?.[0] ? `<img src="${esc(p.images[0])}" alt="">` : '<span class="empty-img">👟</span>'}</div><div><h3>${esc(p.name)} <span class="status-pill">${p.active ? 'ظاهر' : 'مخفي'}</span></h3><p>${esc(p.code)} • ${money(p.price)} • ${Object.values(p.sizes).reduce((a, b) => a + b, 0)} قطعة${page ? ` • الصفحة ${page}` : ''}</p></div>${can('products.manage') ? `<div class="admin-product-actions"><button type="button" class="product-drag-handle" data-drag-product="${p.id}" draggable="${filtering ? 'false' : 'true'}" aria-label="اسحب لتغيير ترتيب ${esc(p.name)}" title="${filtering ? 'امسح البحث لتغيير الترتيب' : 'اسحب المنتج للمكان المطلوب'}" ${filtering ? 'disabled' : ''}><span aria-hidden="true">⋮⋮</span><small>سحب</small></button><label class="product-order-field"><span>الترتيب</span><input data-product-order="${p.id}" type="number" inputmode="numeric" min="${minimum}" max="${maximum}" step="1" value="${index + 1}" aria-label="ترتيب ${esc(p.name)}" ${filtering ? 'disabled' : ''}></label><button data-edit="${p.id}">تعديل</button><button class="product-delete" data-delete-product="${p.id}">حذف نهائي</button></div>` : ''}</div>`; }).join('') : `<p class="empty-list">${filtering ? 'ما فيش منتج مطابق للاسم أو الكود.' : 'ما فيش منتجات.'}</p>`;
+  $('productList').querySelectorAll('[data-product-order]:not(:disabled)').forEach(field => field.onchange = () => {
     const currentIndex = ordered.findIndex(product => product.id === field.dataset.productOrder);
     const product = ordered[currentIndex], minimum = product.active ? 1 : activeProducts.length + 1, maximum = product.active ? activeProducts.length : ordered.length;
     const requested = Math.max(minimum, Math.min(maximum, Math.trunc(Number(field.value) || currentIndex + 1))) - 1;
@@ -130,7 +136,7 @@ function renderProducts() {
     db.products = ordered.map((product, position) => ({ ...product, sortOrder: position + 1 }));
     productOrderDirty = true; renderProducts();
   });
-  bindProductDragging(ordered);
+  if (!filtering) bindProductDragging(ordered);
   $('productList').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openEditor(db.products.find(p => p.id === b.dataset.edit)));
   $('productList').querySelectorAll('[data-delete-product]').forEach(button => button.onclick = async () => {
     const product = db.products.find(item => item.id === button.dataset.deleteProduct);
@@ -488,6 +494,8 @@ $('previousDay').onclick = () => { $('overviewDate').value = dayShift($('overvie
 $('nextDay').onclick = () => { const next = dayShift($('overviewDate').value, 1), today = localDay(new Date().toISOString()); $('overviewDate').value = next > today ? today : next; renderStats(); };
 $('todayDay').onclick = () => { $('overviewDate').value = localDay(new Date().toISOString()); renderStats(); };
 $('saveProductOrder').onclick = saveProductOrder;
+$('productSearch').oninput = renderProducts;
+$('clearProductSearch').onclick = () => { $('productSearch').value = ''; renderProducts(); $('productSearch').focus(); };
 $('newProduct').onclick = () => openEditor(); $('closeEditor').onclick = closeEditor; $('editorOverlay').onclick = closeEditor; $('productForm').onsubmit = saveProduct;
 $('productImages').onchange = () => {
   clearError('productError'); const files = [...$('productImages').files];

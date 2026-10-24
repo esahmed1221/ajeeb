@@ -1,0 +1,90 @@
+.assistant-product-actions {
+  display: grid;
+  justify-items: stretch;
+  gap: 6px;
+  min-width: 132px;
+}
+
+.assistant-open-product,
+.assistant-order-control > button {
+  border: 1px solid #bcdedb;
+  border-radius: 7px;
+  background: #effaf8;
+  color: var(--teal);
+  padding: 6px 8px;
+  font-size: 9px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.assistant-order-control {
+  display: grid;
+  grid-template-columns: 74px minmax(46px, auto);
+  align-items: end;
+  gap: 4px;
+}
+
+.assistant-order-control label {
+  display: grid;
+  grid-row: 1 / 3;
+  gap: 2px;
+  margin: 0;
+}
+
+.assistant-order-control label span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.assistant-order-control input {
+  width: 74px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--navy);
+  text-align: center;
+  font-size: 11px;
+  font-weight: 900;
+  outline: none;
+}
+
+.assistant-order-control input:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px #0b938820;
+}
+
+.assistant-order-control small {
+  align-self: center;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.assistant-order-control > button {
+  padding: 5px;
+}
+
+.assistant-order-control > button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.assistant-order-unavailable {
+  border-radius: 7px;
+  background: #fff0f0;
+  color: #a52c3d;
+  padding: 6px 8px;
+  text-align: center;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+@media (max-width: 600px) {
+  .assistant-product-actions {
+    grid-column: 2;
+    width: 148px;
+  }
+}

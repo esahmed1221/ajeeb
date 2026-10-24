@@ -41,6 +41,25 @@ function byStock(left, right) { return right.totalStock - left.totalStock || rig
 function bySizes(left, right) { return right.sizeCount - left.sizeCount || right.totalStock - left.totalStock || left.code.localeCompare(right.code); }
 function response(intent, message, items = [], detail = '') { return { intent, message, items, detail }; }
 
+function productsInStoreOrder(products) {
+  return [...(Array.isArray(products) ? products : [])].sort((left, right) => Number(right.active) - Number(left.active) || Number(left.sortOrder || 0) - Number(right.sortOrder || 0) || String(left.id).localeCompare(String(right.id)));
+}
+
+export function productStorePosition(products, productId, pageSize = 12) {
+  const ordered = productsInStoreOrder(products), active = ordered.filter(product => product.active), index = active.findIndex(product => product.id === productId);
+  if (index < 0) return { active: false, position: null, page: null, maximum: active.length };
+  return { active: true, position: index + 1, page: Math.ceil((index + 1) / pageSize), maximum: active.length };
+}
+
+export function reorderProductForStore(products, productId, requestedPosition, pageSize = 12) {
+  const ordered = productsInStoreOrder(products), activeCount = ordered.filter(product => product.active).length, sourceIndex = ordered.findIndex(product => product.id === productId);
+  if (sourceIndex < 0 || !ordered[sourceIndex].active) return { products: ordered, changed: false, ...productStorePosition(ordered, productId, pageSize) };
+  const position = Math.max(1, Math.min(activeCount, Math.trunc(Number(requestedPosition) || sourceIndex + 1))), targetIndex = position - 1;
+  if (targetIndex !== sourceIndex) { const [moved] = ordered.splice(sourceIndex, 1); ordered.splice(targetIndex, 0, moved); }
+  const updated = ordered.map((product, index) => ({ ...product, sortOrder: index + 1 }));
+  return { products: updated, changed: targetIndex !== sourceIndex, ...productStorePosition(updated, productId, pageSize) };
+}
+
 export function answerInventoryQuestion(products, rawQuestion) {
   const question = normalizeInventoryQuestion(rawQuestion), inventory = (Array.isArray(products) ? products : []).map(inventoryProduct), limit = requestedLimit(question);
   if (!question) return response('help', 'اكتب سؤالك عن المخزون، أو اختَر واحدًا من الأسئلة الجاهزة.', [], 'أفهم المقاسات، الكميات، الأكواد، المنتجات النافدة والمنخفضة.');

@@ -1,4 +1,4 @@
-import { answerInventoryQuestion } from './inventory-assistant.js?v=1';
+import { answerInventoryQuestion, productStorePosition, reorderProductForStore } from './inventory-assistant.js?v=2';
 
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -151,16 +151,42 @@ function renderProducts() {
 function assistantWelcome() {
   return '<article class="assistant-message bot"><span class="assistant-avatar" aria-hidden="true">ع</span><div class="assistant-bubble"><strong>مساعد المخزون</strong><p>اسألني عن أكثر الموديلات في المقاسات أو الكميات، عن مقاس محدد، كود منتج، المخزون المنخفض أو النافد.</p><small>التحليل يتم داخل لوحة الإدارة ولا تُرسل بيانات المتجر إلى خدمة خارجية.</small></div></article>';
 }
+function assistantOrderControl(item) {
+  if (!can('products.manage')) return '';
+  const order = productStorePosition(db.products, item.id);
+  if (!order.active) return '<span class="assistant-order-unavailable">المنتج مخفي من المتجر</span>';
+  return `<div class="assistant-order-control" data-assistant-order-wrap="${esc(item.id)}"><label><span>ترتيب الواجهة</span><input data-assistant-order="${esc(item.id)}" type="number" inputmode="numeric" min="1" max="${order.maximum}" step="1" value="${order.position}" aria-label="ترتيب ${esc(item.name)} في واجهة المتجر"></label><small data-assistant-page="${esc(item.id)}">الصفحة ${order.page}</small><button type="button" data-save-assistant-order="${esc(item.id)}">حفظ</button></div>`;
+}
 function assistantProductResult(item) {
   const sizeSummary = item.sizes.length ? item.sizes.map(entry => `<span>${esc(entry.size)} × ${Number(entry.stock)}</span>`).join('') : '<span class="empty-size">بدون مخزون</span>';
   const focus = item.focusSize ? `<b class="assistant-focus-stock">مقاس ${esc(item.focusSize)}: ${Number(item.focusStock)} قطعة</b>` : `<b>${Number(item.sizeCount)} مقاس • ${Number(item.totalStock)} قطعة</b>`;
-  return `<article class="assistant-product-result"><div class="assistant-product-photo">${item.image ? `<img src="${esc(item.image)}" alt="">` : '<span aria-hidden="true">👟</span>'}</div><div class="assistant-product-copy"><div><strong>${esc(item.name)}</strong><code>${esc(item.code)}</code><em class="${item.active ? 'active' : 'inactive'}">${item.active ? 'ظاهر' : 'مخفي'}</em></div>${focus}<div class="assistant-size-stock">${sizeSummary}</div></div><button type="button" data-assistant-product="${esc(item.id)}">فتح المنتج</button></article>`;
+  return `<article class="assistant-product-result"><div class="assistant-product-photo">${item.image ? `<img src="${esc(item.image)}" alt="">` : '<span aria-hidden="true">👟</span>'}</div><div class="assistant-product-copy"><div><strong>${esc(item.name)}</strong><code>${esc(item.code)}</code><em class="${item.active ? 'active' : 'inactive'}">${item.active ? 'ظاهر' : 'مخفي'}</em></div>${focus}<div class="assistant-size-stock">${sizeSummary}</div></div><div class="assistant-product-actions"><button class="assistant-open-product" type="button" data-assistant-product="${esc(item.id)}">فتح المنتج</button>${assistantOrderControl(item)}</div></article>`;
+}
+function refreshAssistantOrderControls() {
+  $('assistantMessages').querySelectorAll('[data-assistant-order-wrap]').forEach(wrapper => {
+    const productId = wrapper.dataset.assistantOrderWrap, order = productStorePosition(db.products, productId), input = wrapper.querySelector('[data-assistant-order]'), page = wrapper.querySelector('[data-assistant-page]');
+    if (!order.active || !input || !page) return;
+    input.value = order.position; input.max = order.maximum; page.textContent = `الصفحة ${order.page}`;
+  });
+}
+async function saveAssistantProductOrder(button) {
+  const productId = button.dataset.saveAssistantOrder, input = button.closest('[data-assistant-order-wrap]')?.querySelector('[data-assistant-order]');
+  if (!productId || !input || !can('products.manage')) return;
+  const result = reorderProductForStore(db.products, productId, input.value), originalText = button.textContent;
+  button.disabled = true; button.textContent = 'جاري...';
+  try {
+    await api('/api/admin/products/order', { method: 'PUT', body: JSON.stringify({ ids: result.products.map(product => product.id) }) });
+    db.products = result.products; productOrderDirty = false; await load(); refreshAssistantOrderControls();
+    button.textContent = 'تم ✓'; setTimeout(() => { if (button.isConnected) button.textContent = originalText; }, 1600);
+  } catch (error) { button.textContent = originalText; alert(error.message); }
+  finally { button.disabled = false; }
 }
 function bindAssistantProductButtons() {
   $('assistantMessages').querySelectorAll('[data-assistant-product]').forEach(button => button.onclick = () => {
     const product = db.products.find(item => item.id === button.dataset.assistantProduct); if (!product) return;
     $('productSearch').value = product.code; renderProducts(); showTab('productsTab');
   });
+  $('assistantMessages').querySelectorAll('[data-save-assistant-order]').forEach(button => button.onclick = () => saveAssistantProductOrder(button));
 }
 function askInventoryAssistant(rawQuestion) {
   const question = String(rawQuestion || '').trim(); if (!question) return;

@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { answerInventoryQuestion, normalizeInventoryQuestion } from '../public/inventory-assistant.js';
+import { answerInventoryQuestion, normalizeInventoryQuestion, productStorePosition, reorderProductForStore } from '../public/inventory-assistant.js';
 
 const adminHtml = fs.readFileSync(new URL('../public/admin.html', import.meta.url), 'utf8');
 const adminScript = fs.readFileSync(new URL('../public/admin.js', import.meta.url), 'utf8');
 assert.match(adminHtml, /data-tab="assistantTab"/);
 assert.match(adminHtml, /id="inventoryAssistantForm"/);
-assert.match(adminHtml, /admin-assistant\.css\?v=1/);
+assert.match(adminHtml, /admin-assistant\.css\?v=2/);
+assert.match(adminHtml, /admin-assistant-order\.css\?v=1/);
 assert.match(adminScript, /answerInventoryQuestion/);
+assert.match(adminScript, /data-save-assistant-order/);
 
 const products = [
   { id: 'a', code: 'A100', name: 'حذاء ألف', active: true, images: ['/a.jpg'], sizes: { 40: 2, 41: 3 } },
@@ -47,5 +49,14 @@ assert.match(answer.message, /18 قطعة/);
 
 answer = answerInventoryQuestion(products, 'سؤال غير معروف');
 assert.equal(answer.intent, 'help');
+
+const orderedProducts = products.map((product, index) => ({ ...product, sortOrder: index + 1 }));
+let order = productStorePosition(orderedProducts, 'd');
+assert.deepEqual(order, { active: true, position: 3, page: 1, maximum: 3 });
+const moved = reorderProductForStore(orderedProducts, 'd', 1);
+assert.equal(moved.changed, true);
+assert.equal(moved.position, 1);
+assert.deepEqual(moved.products.map(product => product.id), ['d', 'a', 'b', 'c']);
+assert.equal(productStorePosition(moved.products, 'c').active, false);
 
 console.log('Inventory assistant smoke test passed');
